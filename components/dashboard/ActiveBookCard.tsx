@@ -16,14 +16,22 @@ export function ActiveBookCard({
   buddy,
   myPage,
   theirPage,
+  otherCount = 0,
 }: {
   book: Book;
   me: Profile;
   buddy: Profile | null;
   myPage: number;
   theirPage: number;
+  otherCount?: number;
 }) {
-  const buddyName = buddy?.displayName ?? "Buddy";
+  const buddyName =
+    buddy?.displayName ??
+    (otherCount > 0 ? "Room" : "Buddy");
+  const theirLabel =
+    buddy && otherCount > 0
+      ? `${buddy.displayName} +${otherCount}`
+      : buddyName;
 
   return (
     <article className="glass overflow-hidden rounded-3xl">
@@ -59,13 +67,13 @@ export function ActiveBookCard({
           theirs={theirPage}
           total={book.totalPages}
           myName={me.displayName}
-          theirName={buddyName}
+          theirName={theirLabel}
         />
         <LeadIndicator
           myPage={myPage}
           theirPage={theirPage}
           myName={me.displayName}
-          theirName={buddyName}
+          theirName={theirLabel}
         />
         <PageCounter bookId={book.id} totalPages={book.totalPages} currentPage={myPage} />
         <ShareBookButton bookId={book.id} title={book.title} />

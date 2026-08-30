@@ -19,7 +19,8 @@ function label(activity: Activity, actor: string): string {
     case "book_completed":
       return `${actor} finished ${title} with you 🎉`;
     case "pair_joined":
-      return `${actor} joined the pair`;
+    case "room_joined":
+      return `${actor} joined the room`;
     default:
       return `${actor} did something`;
   }

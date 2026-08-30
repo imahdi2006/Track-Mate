@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import webpush from "web-push";
-import { PUSH_THROTTLE_MS } from "@/lib/config";
-import { getPairDoc } from "@/lib/auth/pair-store";
+import { PUSH_THROTTLE_MS, isSupabaseConfigured } from "@/lib/config";
 import { getSupabaseServiceClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -11,7 +10,7 @@ const lastSent = new Map<string, number>();
 function configureVapid() {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT ?? "mailto:hello@pagemate.app";
+  const subject = process.env.VAPID_SUBJECT ?? "mailto:hello@BookMate.app";
   if (!publicKey || !privateKey) return false;
   webpush.setVapidDetails(subject, publicKey, privateKey);
   return true;
@@ -26,12 +25,13 @@ type Body = {
   note?: string;
   actorId?: string;
   buddyCode?: string;
+  roomId?: string;
   subscription?: { endpoint: string; p256dh: string; auth: string };
 };
 
 function composeMessage(body: Body, name: string): string {
   const title = body.bookTitle ?? "your book";
-  if (body.event === "test") return "Push is on. You’ll get a ping when your buddy turns a page.";
+  if (body.event === "test") return "Push is on. You’ll get a ping when someone in the room turns a page.";
   if (body.event === "reaction") {
     return `${name} reacted ${body.emoji ?? "👏"} on page ${body.page} of '${title}'`;
   }
@@ -47,11 +47,11 @@ async function deliver(
   bookId?: string,
 ): Promise<number> {
   const payload = JSON.stringify({
-    title: "PageMate",
+    title: "BookMate",
     body: message,
     bookId,
     url: bookId ? `/book/${bookId}` : "/",
-    tag: `pagemate-${bookId ?? "feed"}`,
+    tag: `bookmate-${bookId ?? "feed"}`,
   });
   const results = await Promise.allSettled(
     subs.map((sub) =>
@@ -80,7 +80,9 @@ export async function POST(request: Request) {
   }
   lastSent.set(throttleKey, Date.now());
 
-  if (body.buddyCode && body.actorId) {
+  // Local demo path (SQLite pair docs) — only when Supabase is not the production path.
+  if (!isSupabaseConfigured() && body.buddyCode && body.actorId) {
+    const { getPairDoc } = await import("@/lib/auth/pair-store");
     const doc = await getPairDoc(body.buddyCode);
     const actor = doc?.profiles.find((p) => p.id === body.actorId);
     const name = actor?.displayName ?? "Your buddy";
@@ -120,35 +122,75 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, reason: "unauthenticated" }, { status: 401 });
   }
 
-  const { data: pair } = await sb
-    .from("reading_pairs")
-    .select("*")
-    .or(`user_a_id.eq.${actorId},user_b_id.eq.${actorId}`)
-    .maybeSingle();
+  let roomId = body.roomId ?? null;
+  if (!roomId && body.buddyCode) {
+    const { data: byCode } = await sb
+      .from("reading_rooms")
+      .select("id")
+      .eq("invite_code", body.buddyCode.trim().toUpperCase())
+      .maybeSingle();
+    roomId = byCode?.id ?? null;
+  }
+  if (!roomId) {
+    const { data: membership } = await sb
+      .from("room_members")
+      .select("room_id")
+      .eq("user_id", actorId)
+      .limit(1)
+      .maybeSingle();
+    roomId = membership?.room_id ?? null;
+  }
+  if (!roomId) {
+    return NextResponse.json({ ok: false, reason: "no_room" }, { status: 200 });
+  }
 
-  if (!pair) return NextResponse.json({ ok: false, reason: "no_pair" }, { status: 200 });
-
-  const buddyId = pair.user_a_id === actorId ? pair.user_b_id : pair.user_a_id;
   const { data: actor } = await sb
     .from("profiles")
     .select("display_name")
     .eq("id", actorId)
     .maybeSingle();
+  const name = actor?.display_name ?? "Someone";
 
-  const name = actor?.display_name ?? "Your buddy";
-  const targetUser = body.event === "test" ? actorId : buddyId;
-  if (!targetUser) return NextResponse.json({ ok: true, skipped: "no_buddy" });
+  const { data: memberRows } = await sb
+    .from("room_members")
+    .select("user_id")
+    .eq("room_id", roomId);
+  const targetIds =
+    body.event === "test"
+      ? [actorId]
+      : (memberRows ?? [])
+          .map((m) => String(m.user_id))
+          .filter((id) => id !== actorId);
 
-  const { data: subs } = await sb.from("push_subscriptions").select("*").eq("user_id", targetUser);
-  const sent = await deliver(
-    (subs ?? []).map((sub) => ({
+  if (!targetIds.length) {
+    return NextResponse.json({ ok: true, skipped: "no_targets" });
+  }
+
+  const { data: subs } = await sb
+    .from("push_subscriptions")
+    .select("*")
+    .in("user_id", targetIds);
+
+  const extra =
+    body.event === "test" && body.subscription ? [body.subscription] : [];
+  const seen = new Set<string>();
+  const targets = [
+    ...extra,
+    ...(subs ?? []).map((sub) => ({
       endpoint: sub.endpoint as string,
       p256dh: sub.p256dh as string,
       auth: sub.auth as string,
     })),
-    composeMessage(body, name),
-    body.bookId,
-  );
+  ].filter((s) => {
+    if (!s.endpoint || seen.has(s.endpoint)) return false;
+    seen.add(s.endpoint);
+    return true;
+  });
 
+  if (!targets.length) {
+    return NextResponse.json({ ok: false, reason: "no_subscription" }, { status: 200 });
+  }
+
+  const sent = await deliver(targets, composeMessage(body, name), body.bookId);
   return NextResponse.json({ ok: true, sent, mode: "supabase" });
 }

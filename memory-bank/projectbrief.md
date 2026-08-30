@@ -1,19 +1,20 @@
-# PageMate — project brief
+# BookMate — project brief
 
-PageMate is a Progressive Web App for two friends (or any small pair) to track shared book-reading progress in real time.
+BookMate is a Progressive Web App for a small reading room (2–5 people) to track shared book-reading progress in real time.
 
 ## Goals
-- Pair two people by sharing **a book** (`/join/{code}?book={id}`). One pair still holds the shelf; the invite is the book.
-- Show dual progress (you vs buddy) on the active book.
-- Instant page updates without refresh.
-- Installable, offline-tolerant, push-capable PWA.
+- Create rooms with a configurable member cap (max 5); owner can kick and delete.
+- Invite primarily by sharing **a book** (`/join/{code}?book={id}`).
+- Show live progress across devices on the same account (Supabase).
+- Installable, push-capable PWA on HTTPS (Vercel).
 - Dark, tactile, bookish UI (navy / indigo / amber / cream).
 
 ## Out of scope (v1)
-- Groups larger than two.
+- Read-only invites / roles beyond owner|member.
 - Full social network / discovery.
 - DRM, ebook file hosting, or in-app reader.
 - Payments.
+- Migrating legacy VPS SQLite accounts into Supabase.
 
 ## Success
-Two people on two phones, one book, both bars moving live, a ping when the other turns a page, and a confetti burst when they finish together.
+Several people in one room, one shared shelf, bars moving live, a ping when someone turns a page, confetti when everyone finishes a book.

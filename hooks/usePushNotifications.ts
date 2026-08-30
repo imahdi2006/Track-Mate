@@ -11,7 +11,7 @@ export function usePushNotifications() {
   const [busy, setBusy] = useState(false);
   const [promptOpen, setPromptOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pair = useSessionStore((s) => s.pair);
+  const pair = useSessionStore((s) => s.room);
   const savePushSubscription = useSessionStore((s) => s.savePushSubscription);
   const removePushSubscription = useSessionStore((s) => s.removePushSubscription);
 
@@ -97,9 +97,9 @@ export function usePushNotifications() {
   }, [removePushSubscription]);
 
   const sendTest = useCallback(async () => {
-    const { pair, profile } = useSessionStore.getState();
-    if (!pair || !profile) {
-      setError("Sign in and create a pair first.");
+    const { room, profile } = useSessionStore.getState();
+    if (!room || !profile) {
+      setError("Sign in and join a room first.");
       return false;
     }
     try {
@@ -112,7 +112,8 @@ export function usePushNotifications() {
         body: JSON.stringify({
           event: "test",
           actorId: profile.id,
-          buddyCode: pair.buddyCode,
+          buddyCode: room.inviteCode,
+          roomId: room.id,
           subscription:
             sub && json?.keys?.p256dh && json.keys.auth
               ? { endpoint: sub.endpoint, p256dh: json.keys.p256dh, auth: json.keys.auth }

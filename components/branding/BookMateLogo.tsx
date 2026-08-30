@@ -1,7 +1,7 @@
 import { APP_NAME } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
-type PageMateLogoProps = {
+type BookMateLogoProps = {
   size?: number;
   className?: string;
   withWordmark?: boolean;
@@ -12,12 +12,12 @@ type PageMateLogoProps = {
  * Two overlapping open-book leaves that form a soft infinity loop.
  * Indigo (you) + Amber (buddy) share a single spine — two mates, one book.
  */
-export function PageMateLogo({
+export function BookMateLogo({
   size = 40,
   className,
   withWordmark = false,
   wordmarkClassName,
-}: PageMateLogoProps) {
+}: BookMateLogoProps) {
   return (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
       <svg
@@ -129,4 +129,4 @@ export function PageMateLogo({
   );
 }
 
-export default PageMateLogo;
+export default BookMateLogo;

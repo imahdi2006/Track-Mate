@@ -1,17 +1,19 @@
 "use client";
 
 import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
-import { SAMPLE_BOOK } from "@/lib/sample-book";
+import { ACTIVE_ROOM_KEY, ROOM_MAX_MEMBERS, ROOM_MIN_MEMBERS } from "@/lib/config";
 import type {
   Activity,
   AuthPayload,
   Book,
   BookStatus,
+  CreateRoomInput,
   MicroNote,
-  PageMateSnapshot,
+  BookMateSnapshot,
   Profile,
-  ReadingPair,
-  ReadingProgress,
+  ReadingRoom,
+  RoomMember,
+  RoomSummary,
 } from "@/lib/types";
 import { emptySnapshot } from "@/lib/types";
 import { generateBuddyCode } from "@/lib/utils";
@@ -28,20 +30,22 @@ function mapProfile(row: Record<string, unknown>): Profile {
   };
 }
 
-function mapPair(row: Record<string, unknown>): ReadingPair {
+function mapRoom(row: Record<string, unknown>): ReadingRoom {
   return {
     id: String(row.id),
-    buddyCode: String(row.buddy_code),
-    userAId: String(row.user_a_id),
-    userBId: (row.user_b_id as string | null) ?? null,
+    inviteCode: String(row.invite_code),
+    name: String(row.name ?? "Reading room"),
+    ownerId: String(row.owner_id),
+    maxMembers: Number(row.max_members ?? ROOM_MAX_MEMBERS),
     createdAt: String(row.created_at),
   };
 }
 
 function mapBook(row: Record<string, unknown>): Book {
+  const roomId = String(row.room_id ?? row.pair_id ?? "");
   return {
     id: String(row.id),
-    pairId: String(row.pair_id),
+    roomId,
     title: String(row.title),
     author: String(row.author),
     totalPages: Number(row.total_pages),
@@ -54,7 +58,7 @@ function mapBook(row: Record<string, unknown>): Book {
   };
 }
 
-function mapProgress(row: Record<string, unknown>): ReadingProgress {
+function mapProgress(row: Record<string, unknown>) {
   return {
     id: String(row.id),
     bookId: String(row.book_id),
@@ -67,7 +71,7 @@ function mapProgress(row: Record<string, unknown>): ReadingProgress {
 function mapActivity(row: Record<string, unknown>): Activity {
   return {
     id: String(row.id),
-    pairId: String(row.pair_id),
+    roomId: String(row.room_id ?? row.pair_id ?? ""),
     bookId: (row.book_id as string | null) ?? null,
     userId: String(row.user_id),
     kind: row.kind as Activity["kind"],
@@ -88,10 +92,57 @@ function mapNote(row: Record<string, unknown>): MicroNote {
   };
 }
 
+function readActiveRoomId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(ACTIVE_ROOM_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeActiveRoomId(id: string | null) {
+  if (typeof window === "undefined") return;
+  try {
+    if (id) localStorage.setItem(ACTIVE_ROOM_KEY, id);
+    else localStorage.removeItem(ACTIVE_ROOM_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+async function listRoomSummaries(
+  sb: SupabaseClient,
+  userId: string,
+): Promise<RoomSummary[]> {
+  const { data: memberships } = await sb
+    .from("room_members")
+    .select("room_id, role, reading_rooms(*)")
+    .eq("user_id", userId);
+
+  const summaries: RoomSummary[] = [];
+  for (const m of memberships ?? []) {
+    const roomRow = m.reading_rooms as unknown as Record<string, unknown> | null;
+    if (!roomRow) continue;
+    const room = mapRoom(roomRow);
+    const { count } = await sb
+      .from("room_members")
+      .select("*", { count: "exact", head: true })
+      .eq("room_id", room.id);
+    summaries.push({
+      room,
+      memberCount: count ?? 1,
+      role: m.role === "owner" ? "owner" : "member",
+    });
+  }
+  return summaries;
+}
+
 async function fetchSnapshot(
   sb: SupabaseClient,
   userId: string,
-): Promise<PageMateSnapshot> {
+  preferredRoomId?: string | null,
+): Promise<BookMateSnapshot> {
   const { data: profileRow } = await sb
     .from("profiles")
     .select("*")
@@ -99,59 +150,79 @@ async function fetchSnapshot(
     .maybeSingle();
 
   const profile = profileRow ? mapProfile(profileRow) : null;
+  const rooms = await listRoomSummaries(sb, userId);
 
-  const { data: pairRow } = await sb
-    .from("reading_pairs")
-    .select("*")
-    .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
-    .maybeSingle();
-
-  if (!pairRow) {
-    return { ...emptySnapshot(), profile };
+  if (!rooms.length) {
+    return { ...emptySnapshot(), profile, rooms: [] };
   }
 
-  const pair = mapPair(pairRow);
-  const buddyId = pair.userAId === userId ? pair.userBId : pair.userAId;
+  const preferred =
+    preferredRoomId ??
+    readActiveRoomId() ??
+    null;
+  const activeSummary =
+    rooms.find((r) => r.room.id === preferred) ?? rooms[0]!;
+  const room = activeSummary.room;
+  writeActiveRoomId(room.id);
 
   const [
-    { data: buddyRow },
+    { data: memberRows },
     { data: bookRows },
     { data: progressRows },
     { data: activityRows },
     { data: noteRows },
     { data: pushRows },
   ] = await Promise.all([
-    buddyId
-      ? sb.from("profiles").select("*").eq("id", buddyId).maybeSingle()
-      : Promise.resolve({ data: null }),
+    sb
+      .from("room_members")
+      .select("room_id, user_id, role, joined_at, profiles(*)")
+      .eq("room_id", room.id),
     sb
       .from("books")
       .select("*")
-      .eq("pair_id", pair.id)
+      .eq("room_id", room.id)
       .order("created_at", { ascending: false }),
-    sb.from("reading_progress").select("*").eq("pair_id", pair.id),
+    sb.from("reading_progress").select("*").eq("room_id", room.id),
     sb
       .from("activities")
       .select("*")
-      .eq("pair_id", pair.id)
+      .eq("room_id", room.id)
       .order("created_at", { ascending: false })
       .limit(200),
     sb
       .from("micro_notes")
       .select("*")
-      .eq("pair_id", pair.id)
+      .eq("room_id", room.id)
       .order("created_at", { ascending: false }),
     sb.from("push_subscriptions").select("*").eq("user_id", userId),
   ]);
 
+  const members: RoomMember[] = (memberRows ?? []).map((row) => {
+    const p = row.profiles as unknown as Record<string, unknown> | null;
+    return {
+      roomId: String(row.room_id),
+      userId: String(row.user_id),
+      role: row.role === "owner" ? "owner" : "member",
+      joinedAt: String(row.joined_at),
+      profile: p ? mapProfile(p) : null,
+    };
+  });
+
+  const others = members.filter((m) => m.userId !== userId);
+  const buddy = others[0]?.profile ?? null;
+
   return {
     profile,
-    pair,
-    buddy: buddyRow ? mapProfile(buddyRow) : null,
+    rooms,
+    room,
+    members,
+    buddy,
+    pair: room,
     books: (bookRows ?? []).map(mapBook),
     progress: (progressRows ?? []).map(mapProgress),
     activities: (activityRows ?? []).map(mapActivity),
     notes: (noteRows ?? []).map(mapNote),
+    removedBookIds: [],
     pushSubscriptions: (pushRows ?? []).map((row) => ({
       id: String(row.id),
       userId: String(row.user_id),
@@ -191,14 +262,14 @@ export function createSupabaseAdapter(
   if (!sb) return null;
 
   let userId: string | null = null;
-  let pairId: string | null = null;
+  let roomId: string | null = null;
   const listeners = new Set<ProgressListener>();
   let channel: RealtimeChannel | null = null;
 
   const notify = async () => {
     if (!userId) return;
-    const snap = await fetchSnapshot(sb, userId);
-    pairId = snap.pair?.id ?? null;
+    const snap = await fetchSnapshot(sb, userId, roomId);
+    roomId = snap.room?.id ?? null;
     listeners.forEach((l) => l(snap));
   };
 
@@ -210,7 +281,7 @@ export function createSupabaseAdapter(
       userId = data.user?.id ?? null;
       if (!userId) return emptySnapshot();
       const snap = await fetchSnapshot(sb, userId);
-      pairId = snap.pair?.id ?? null;
+      roomId = snap.room?.id ?? null;
       return snap;
     },
 
@@ -234,7 +305,7 @@ export function createSupabaseAdapter(
         if (error) throw error;
         if (!data.session || !data.user) {
           throw new Error(
-            "Check Gmail (or your inbox) to confirm the account, then sign in.",
+            "Check your email to confirm the account, then sign in.",
           );
         }
         userId = data.user.id;
@@ -287,109 +358,105 @@ export function createSupabaseAdapter(
       if (error) throw error;
       return {
         emailed: true,
-        message: "Check Gmail for a PageMate reset link. It expires soon.",
+        message: "Check your email for a BookMate reset link. It expires soon.",
       };
     },
 
     async signOut() {
       await sb.auth.signOut();
       userId = null;
-      pairId = null;
+      roomId = null;
+      writeActiveRoomId(null);
       listeners.forEach((l) => l(emptySnapshot()));
     },
 
-    async createPair() {
+    async createRoom(input?: CreateRoomInput) {
       if (!userId) throw new Error("Not authenticated");
-      const { data: existing } = await sb
-        .from("reading_pairs")
-        .select("*")
-        .or(`user_a_id.eq.${userId},user_b_id.eq.${userId}`)
-        .maybeSingle();
-      if (existing) {
-        const pair = mapPair(existing);
-        pairId = pair.id;
-        await notify();
-        return pair;
-      }
+      const maxMembers = Math.min(
+        ROOM_MAX_MEMBERS,
+        Math.max(ROOM_MIN_MEMBERS, Math.floor(input?.maxMembers ?? ROOM_MAX_MEMBERS)),
+      );
+      const name = (input?.name ?? "Reading room").trim() || "Reading room";
+      const inviteCode = generateBuddyCode();
+
       const { data, error } = await sb
-        .from("reading_pairs")
+        .from("reading_rooms")
         .insert({
-          buddy_code: generateBuddyCode(),
-          user_a_id: userId,
+          invite_code: inviteCode,
+          name,
+          owner_id: userId,
+          max_members: maxMembers,
         })
         .select("*")
         .single();
       if (error) throw error;
-      const pair = mapPair(data);
-      pairId = pair.id;
+      const room = mapRoom(data);
 
-      const { data: book } = await sb
-        .from("books")
-        .insert({
-          pair_id: pair.id,
-          title: SAMPLE_BOOK.title,
-          author: SAMPLE_BOOK.author,
-          total_pages: SAMPLE_BOOK.totalPages,
-          cover_url: SAMPLE_BOOK.coverUrl,
-          status: "currently_reading",
-          created_by: userId,
-        })
-        .select("*")
-        .single();
-
-      if (book) {
-        await sb.from("reading_progress").insert({
-          pair_id: pair.id,
-          book_id: book.id,
-          user_id: userId,
-          current_page: 1,
-        });
-        await sb.from("activities").insert({
-          pair_id: pair.id,
-          book_id: book.id,
-          user_id: userId,
-          kind: "book_added",
-          payload: { bookTitle: SAMPLE_BOOK.title },
-        });
+      const { error: memErr } = await sb.from("room_members").insert({
+        room_id: room.id,
+        user_id: userId,
+        role: "owner",
+      });
+      if (memErr) {
+        await sb.from("reading_rooms").delete().eq("id", room.id);
+        throw memErr;
       }
 
+      roomId = room.id;
+      writeActiveRoomId(room.id);
       await notify();
-      return pair;
+      return room;
     },
 
-    async joinPair(buddyCode) {
+    async createPair() {
+      return this.createRoom({ maxMembers: 2 });
+    },
+
+    async joinRoom(inviteCode) {
       if (!userId) throw new Error("Not authenticated");
-      const code = buddyCode.trim().toUpperCase();
+      const code = inviteCode.trim().toUpperCase();
       const { data: existing, error } = await sb
-        .from("reading_pairs")
+        .from("reading_rooms")
         .select("*")
-        .eq("buddy_code", code)
+        .eq("invite_code", code)
         .maybeSingle();
       if (error) throw error;
-      if (!existing) throw new Error("No pair found for that buddy code.");
-      if (existing.user_a_id === userId)
-        throw new Error("That's your own code.");
-      if (existing.user_b_id && existing.user_b_id !== userId) {
-        throw new Error("This pair is already full.");
-      }
-      const { data: updated, error: upErr } = await sb
-        .from("reading_pairs")
-        .update({ user_b_id: userId })
-        .eq("id", existing.id)
-        .select("*")
-        .single();
-      if (upErr) throw upErr;
-      const pair = mapPair(updated);
-      pairId = pair.id;
+      if (!existing) throw new Error("No room found for that invite code.");
+      const room = mapRoom(existing);
 
-      const { data: books } = await sb
-        .from("books")
-        .select("id")
-        .eq("pair_id", pair.id);
-      if (books) {
+      const { data: already } = await sb
+        .from("room_members")
+        .select("user_id")
+        .eq("room_id", room.id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (already) {
+        roomId = room.id;
+        writeActiveRoomId(room.id);
+        await notify();
+        return { room };
+      }
+
+      const { count } = await sb
+        .from("room_members")
+        .select("*", { count: "exact", head: true })
+        .eq("room_id", room.id);
+      if ((count ?? 0) >= room.maxMembers) {
+        throw new Error(`This room is full (max ${room.maxMembers}).`);
+      }
+
+      const { error: joinErr } = await sb.from("room_members").insert({
+        room_id: room.id,
+        user_id: userId,
+        role: "member",
+      });
+      if (joinErr) throw joinErr;
+
+      const { data: books } = await sb.from("books").select("id").eq("room_id", room.id);
+      if (books?.length) {
         await sb.from("reading_progress").upsert(
           books.map((b) => ({
-            pair_id: pair.id,
+            room_id: room.id,
             book_id: b.id,
             user_id: userId,
             current_page: 0,
@@ -398,34 +465,102 @@ export function createSupabaseAdapter(
         );
       }
       await sb.from("activities").insert({
-        pair_id: pair.id,
+        room_id: room.id,
         book_id: null,
         user_id: userId,
-        kind: "pair_joined",
+        kind: "room_joined",
         payload: {},
       });
-      const snap = await fetchSnapshot(sb, userId);
-      listeners.forEach((l) => l(snap));
-      return { pair, buddy: snap.buddy };
+
+      roomId = room.id;
+      writeActiveRoomId(room.id);
+      await notify();
+      return { room };
+    },
+
+    async joinPair(buddyCode) {
+      const { room } = await this.joinRoom(buddyCode);
+      const snap = await fetchSnapshot(sb, userId!);
+      return { pair: room, buddy: snap.buddy };
+    },
+
+    async leaveRoom() {
+      if (!userId || !roomId) return;
+      const { data: membership } = await sb
+        .from("room_members")
+        .select("role")
+        .eq("room_id", roomId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (!membership) return;
+
+      if (membership.role === "owner") {
+        await sb.from("reading_rooms").delete().eq("id", roomId);
+      } else {
+        await sb
+          .from("room_members")
+          .delete()
+          .eq("room_id", roomId)
+          .eq("user_id", userId);
+      }
+      roomId = null;
+      writeActiveRoomId(null);
+      await notify();
     },
 
     async leavePair() {
-      if (!userId || !pairId) return;
-      const { data: pair } = await sb
-        .from("reading_pairs")
-        .select("*")
-        .eq("id", pairId)
+      return this.leaveRoom();
+    },
+
+    async deleteRoom() {
+      if (!userId || !roomId) return;
+      const { data: membership } = await sb
+        .from("room_members")
+        .select("role")
+        .eq("room_id", roomId)
+        .eq("user_id", userId)
         .maybeSingle();
-      if (!pair) return;
-      if (pair.user_a_id === userId) {
-        await sb.from("reading_pairs").delete().eq("id", pairId);
-      } else {
-        await sb
-          .from("reading_pairs")
-          .update({ user_b_id: null })
-          .eq("id", pairId);
+      if (membership?.role !== "owner") {
+        throw new Error("Only the room owner can delete the room.");
       }
-      pairId = null;
+      await sb.from("reading_rooms").delete().eq("id", roomId);
+      roomId = null;
+      writeActiveRoomId(null);
+      await notify();
+    },
+
+    async kickMember(targetUserId: string) {
+      if (!userId || !roomId) throw new Error("Room required");
+      if (targetUserId === userId) throw new Error("You can’t kick yourself.");
+      const { data: membership } = await sb
+        .from("room_members")
+        .select("role")
+        .eq("room_id", roomId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (membership?.role !== "owner") {
+        throw new Error("Only the room owner can kick members.");
+      }
+      const { error } = await sb
+        .from("room_members")
+        .delete()
+        .eq("room_id", roomId)
+        .eq("user_id", targetUserId);
+      if (error) throw error;
+      await notify();
+    },
+
+    async setActiveRoom(nextRoomId: string) {
+      if (!userId) throw new Error("Not authenticated");
+      const { data } = await sb
+        .from("room_members")
+        .select("room_id")
+        .eq("room_id", nextRoomId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (!data) throw new Error("You’re not in that room.");
+      roomId = nextRoomId;
+      writeActiveRoomId(nextRoomId);
       await notify();
     },
 
@@ -444,11 +579,11 @@ export function createSupabaseAdapter(
     },
 
     async addBook(input) {
-      if (!userId || !pairId) throw new Error("Pair required");
+      if (!userId || !roomId) throw new Error("Room required");
       const { data, error } = await sb
         .from("books")
         .insert({
-          pair_id: pairId,
+          room_id: roomId,
           title: input.title.trim(),
           author: input.author.trim(),
           total_pages: Math.max(1, Math.floor(input.totalPages)),
@@ -460,24 +595,23 @@ export function createSupabaseAdapter(
         .single();
       if (error) throw error;
       const book = mapBook(data);
-      const { data: pair } = await sb
-        .from("reading_pairs")
-        .select("user_a_id, user_b_id")
-        .eq("id", pairId)
-        .single();
-      const ids = [pair?.user_a_id, pair?.user_b_id].filter(
-        Boolean,
-      ) as string[];
-      await sb.from("reading_progress").insert(
-        ids.map((id) => ({
-          pair_id: pairId,
-          book_id: book.id,
-          user_id: id,
-          current_page: 0,
-        })),
-      );
+      const { data: members } = await sb
+        .from("room_members")
+        .select("user_id")
+        .eq("room_id", roomId);
+      const ids = (members ?? []).map((m) => String(m.user_id));
+      if (ids.length) {
+        await sb.from("reading_progress").insert(
+          ids.map((id) => ({
+            room_id: roomId,
+            book_id: book.id,
+            user_id: id,
+            current_page: 0,
+          })),
+        );
+      }
       await sb.from("activities").insert({
-        pair_id: pairId,
+        room_id: roomId,
         book_id: book.id,
         user_id: userId,
         kind: "book_added",
@@ -517,7 +651,7 @@ export function createSupabaseAdapter(
     },
 
     async updatePage(bookId, page, previousPage) {
-      if (!userId || !pairId) return;
+      if (!userId || !roomId) return;
       const { data: book } = await sb
         .from("books")
         .select("title, total_pages, status")
@@ -528,7 +662,7 @@ export function createSupabaseAdapter(
 
       await sb.from("reading_progress").upsert(
         {
-          pair_id: pairId,
+          room_id: roomId,
           book_id: bookId,
           user_id: userId,
           current_page: clamped,
@@ -539,7 +673,7 @@ export function createSupabaseAdapter(
 
       if (clamped !== previousPage) {
         await sb.from("activities").insert({
-          pair_id: pairId,
+          room_id: roomId,
           book_id: bookId,
           user_id: userId,
           kind: "page_update",
@@ -556,11 +690,15 @@ export function createSupabaseAdapter(
         .from("reading_progress")
         .select("current_page")
         .eq("book_id", bookId);
-      const bothDone =
-        (allProgress ?? []).length >= 2 &&
+      const { count: memberCount } = await sb
+        .from("room_members")
+        .select("*", { count: "exact", head: true })
+        .eq("room_id", roomId);
+      const everyoneDone =
+        (allProgress ?? []).length >= Math.max(2, memberCount ?? 2) &&
         (allProgress ?? []).every((p) => Number(p.current_page) >= total);
 
-      if (bothDone && book?.status !== "completed") {
+      if (everyoneDone && book?.status !== "completed") {
         await sb
           .from("books")
           .update({
@@ -569,7 +707,7 @@ export function createSupabaseAdapter(
           })
           .eq("id", bookId);
         await sb.from("activities").insert({
-          pair_id: pairId,
+          room_id: roomId,
           book_id: bookId,
           user_id: userId,
           kind: "book_completed",
@@ -582,17 +720,20 @@ export function createSupabaseAdapter(
         bookId,
         page: clamped,
         bookTitle: book?.title,
+        actorId: userId,
+        roomId,
+        inviteCode: undefined,
       });
 
       await notify();
     },
 
     async addNote(input) {
-      if (!userId || !pairId) throw new Error("Pair required");
+      if (!userId || !roomId) throw new Error("Room required");
       const { data, error } = await sb
         .from("micro_notes")
         .insert({
-          pair_id: pairId,
+          room_id: roomId,
           book_id: input.bookId,
           user_id: userId,
           page_number: input.pageNumber,
@@ -603,7 +744,7 @@ export function createSupabaseAdapter(
         .single();
       if (error) throw error;
       await sb.from("activities").insert({
-        pair_id: pairId,
+        room_id: roomId,
         book_id: input.bookId,
         user_id: userId,
         kind: input.emoji && !input.note ? "reaction" : "note",
@@ -619,6 +760,8 @@ export function createSupabaseAdapter(
         page: input.pageNumber,
         emoji: input.emoji,
         note: input.note,
+        actorId: userId,
+        roomId,
       });
       const note = mapNote(data);
       await notify();
@@ -654,7 +797,7 @@ export function createSupabaseAdapter(
         return () => listeners.delete(onChange);
       }
       channel = sb
-        .channel("pagemate-realtime")
+        .channel("bookmate-realtime")
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "reading_progress" },
@@ -685,7 +828,14 @@ export function createSupabaseAdapter(
         )
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "reading_pairs" },
+          { event: "*", schema: "public", table: "reading_rooms" },
+          () => {
+            void notify();
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "room_members" },
           () => {
             void notify();
           },

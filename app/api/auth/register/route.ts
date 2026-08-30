@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
+import { localApiUnavailable } from "@/lib/auth/local-api-guard";
 import { rateLimit } from "@/lib/auth/rate-limit";
 import { upsertUser } from "@/lib/auth/server-store";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const blocked = localApiUnavailable();
+  if (blocked) return blocked;
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  if (!rateLimit(`register:${ip}`, 20)) {
+  if (!rateLimit(`register:${ip}`, 80)) {
     return NextResponse.json({ message: "Too many attempts. Try again later." }, { status: 429 });
   }
 
@@ -47,7 +50,8 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Couldn’t save account";
-    const status = message.toLowerCase().includes("already exists") ? 409 : 400;
+    const lower = message.toLowerCase();
+    const status = lower.includes("wrong password") ? 401 : 500;
     return NextResponse.json({ message }, { status });
   }
 }

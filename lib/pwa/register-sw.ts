@@ -8,9 +8,12 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
       scope: "/",
     });
     await reg.update();
+    if (reg.waiting) {
+      reg.waiting.postMessage({ type: "SKIP_WAITING" });
+    }
     return reg;
   } catch (err) {
-    console.warn("[PageMate] service worker registration failed", err);
+    console.warn("[BookMate] service worker registration failed", err);
     return null;
   }
 }

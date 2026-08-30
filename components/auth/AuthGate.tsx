@@ -3,24 +3,24 @@
 import { useSessionStore } from "@/lib/store/session-store";
 import { AuthScreen } from "@/components/auth/AuthScreen";
 import { PairingScreen } from "@/components/auth/PairingScreen";
-import { PageMateLogo } from "@/components/branding/PageMateLogo";
+import { BookMateLogo } from "@/components/branding/BookMateLogo";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const hydrated = useSessionStore((s) => s.hydrated);
   const hydrating = useSessionStore((s) => s.hydrating);
   const profile = useSessionStore((s) => s.profile);
-  const pair = useSessionStore((s) => s.pair);
+  const room = useSessionStore((s) => s.room);
 
   if (!hydrated || hydrating) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-4">
-        <PageMateLogo size={64} />
+        <BookMateLogo size={64} />
         <p className="text-sm text-muted">Opening your library…</p>
       </div>
     );
   }
 
   if (!profile) return <AuthScreen />;
-  if (!pair) return <PairingScreen />;
+  if (!room) return <PairingScreen />;
   return <>{children}</>;
 }

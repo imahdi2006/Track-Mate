@@ -1,29 +1,43 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { Fraunces, Outfit, Vazirmatn } from "next/font/google";
+import localFont from "next/font/local";
 import { AppProviders } from "@/components/providers/AppProviders";
 import { ThemeScript } from "@/components/theme/ThemeScript";
 import { APP_NAME } from "@/lib/config";
 import "./globals.css";
 
-const outfit = Outfit({
-  subsets: ["latin"],
+const outfit = localFont({
+  src: "./fonts/outfit-latin-wght-normal.woff2",
+  weight: "100 900",
   variable: "--font-outfit",
   display: "swap",
   adjustFontFallback: false,
 });
 
-const fraunces = Fraunces({
-  subsets: ["latin"],
+const fraunces = localFont({
+  src: "./fonts/fraunces-latin-wght-normal.woff2",
+  weight: "100 900",
   variable: "--font-fraunces",
   display: "swap",
   adjustFontFallback: false,
 });
 
-const vazirmatn = Vazirmatn({
-  subsets: ["arabic", "latin"],
+const vazirmatn = localFont({
+  src: [
+    {
+      path: "./fonts/vazirmatn-latin-wght-normal.woff2",
+      weight: "100 900",
+      style: "normal",
+    },
+    {
+      path: "./fonts/vazirmatn-arabic-wght-normal.woff2",
+      weight: "100 900",
+      style: "normal",
+    },
+  ],
   variable: "--font-vazirmatn",
   display: "swap",
+  adjustFontFallback: false,
 });
 
 export const metadata: Metadata = {

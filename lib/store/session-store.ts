@@ -18,12 +18,15 @@ import type {
   AuthPayload,
   Book,
   BookStatus,
+  CreateRoomInput,
   MicroNote,
   Profile,
   PushSubscriptionRecord,
   ReactionEmoji,
-  ReadingPair,
   ReadingProgress,
+  ReadingRoom,
+  RoomMember,
+  RoomSummary,
 } from "@/lib/types";
 import { clamp } from "@/lib/utils";
 import { fireCompletionConfetti } from "@/lib/confetti";
@@ -48,8 +51,13 @@ interface SessionState {
   hydrated: boolean;
   hydrating: boolean;
   profile: Profile | null;
-  pair: ReadingPair | null;
+  rooms: RoomSummary[];
+  room: ReadingRoom | null;
+  members: RoomMember[];
+  /** @deprecated Prefer members */
   buddy: Profile | null;
+  /** @deprecated Prefer room */
+  pair: ReadingRoom | null;
   books: Book[];
   progress: ReadingProgress[];
   activities: Activity[];
@@ -58,10 +66,19 @@ interface SessionState {
   lastError: string | null;
   hydrate: () => Promise<void>;
   signIn: (payload: AuthPayload) => Promise<void>;
-  requestPasswordReset: (email: string) => Promise<{ emailed: boolean; message: string }>;
+  requestPasswordReset: (email: string) => Promise<{ emailed: boolean; message: string; resetUrl?: string }>;
   signOut: () => Promise<void>;
+  createRoom: (input?: CreateRoomInput) => Promise<void>;
+  joinRoom: (code: string) => Promise<void>;
+  leaveRoom: () => Promise<void>;
+  deleteRoom: () => Promise<void>;
+  kickMember: (userId: string) => Promise<void>;
+  setActiveRoom: (roomId: string) => Promise<void>;
+  /** @deprecated Use createRoom */
   createPair: () => Promise<void>;
+  /** @deprecated Use joinRoom */
   joinPair: (code: string) => Promise<void>;
+  /** @deprecated Use leaveRoom */
   leavePair: () => Promise<void>;
   rename: (displayName: string) => Promise<void>;
   addBook: (input: {
@@ -128,8 +145,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   hydrated: false,
   hydrating: false,
   profile: null,
-  pair: null,
+  rooms: [],
+  room: null,
+  members: [],
   buddy: null,
+  pair: null,
   books: [],
   progress: [],
   activities: [],
@@ -172,8 +192,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     await getAdapter().signOut();
     set({
       profile: null,
-      pair: null,
+      rooms: [],
+      room: null,
+      members: [],
       buddy: null,
+      pair: null,
       books: [],
       progress: [],
       activities: [],
@@ -182,30 +205,52 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     });
   },
 
-  createPair: async () => {
-    const pair = await getAdapter().createPair();
+  createRoom: async (input) => {
+    const room = await getAdapter().createRoom(input);
     const snap = await getAdapter().hydrate();
-    set({ ...snap, pair });
+    set({ ...snap, room, pair: room });
+  },
+
+  createPair: async () => {
+    await get().createRoom({ maxMembers: 2 });
+  },
+
+  joinRoom: async (code) => {
+    await getAdapter().joinRoom(code);
+    const snap = await getAdapter().hydrate();
+    set(snap);
   },
 
   joinPair: async (code) => {
-    const { pair, buddy } = await getAdapter().joinPair(code);
+    await get().joinRoom(code);
+  },
+
+  leaveRoom: async () => {
+    await getAdapter().leaveRoom();
     const snap = await getAdapter().hydrate();
-    set({ ...snap, pair, buddy });
+    set(snap);
   },
 
   leavePair: async () => {
-    await getAdapter().leavePair();
-    const profile = get().profile;
-    set({
-      pair: null,
-      buddy: null,
-      books: [],
-      progress: [],
-      activities: [],
-      notes: [],
-      profile,
-    });
+    await get().leaveRoom();
+  },
+
+  deleteRoom: async () => {
+    await getAdapter().deleteRoom();
+    const snap = await getAdapter().hydrate();
+    set(snap);
+  },
+
+  kickMember: async (userId) => {
+    await getAdapter().kickMember(userId);
+    const snap = await getAdapter().hydrate();
+    set(snap);
+  },
+
+  setActiveRoom: async (roomId) => {
+    await getAdapter().setActiveRoom(roomId);
+    const snap = await getAdapter().hydrate();
+    set(snap);
   },
 
   rename: async (displayName) => {
@@ -277,7 +322,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   setPageOptimistic: (bookId, pageOrFn) => {
-    const { profile, progress, books } = get();
+    const { profile, progress, books, members } = get();
     if (!profile) return;
     const current =
       progress.find((p) => p.bookId === bookId && p.userId === profile.id)
@@ -320,21 +365,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         await getAdapter().updatePage(bookId, latest, current);
 
         const snap = get();
-        const mine = snap.progress.find(
-          (p) => p.bookId === bookId && p.userId === profile.id,
-        );
-        const theirs = snap.buddy
-          ? snap.progress.find(
-              (p) => p.bookId === bookId && p.userId === snap.buddy!.id,
-            )
-          : undefined;
-        if (
-          book &&
-          mine &&
-          theirs &&
-          mine.currentPage >= book.totalPages &&
-          theirs.currentPage >= book.totalPages
-        ) {
+        const memberIds = snap.members.map((m) => m.userId);
+        const everyone =
+          memberIds.length >= 2 &&
+          memberIds.every((id) => {
+            const page =
+              snap.progress.find((p) => p.bookId === bookId && p.userId === id)
+                ?.currentPage ?? 0;
+            return book && page >= book.totalPages;
+          });
+        if (book && everyone) {
           fireCompletionConfetti();
           haptic("success");
         }
@@ -358,7 +398,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       });
       useToastStore.getState().push({
         title: "Note queued",
-        body: "We'll deliver it to your buddy when you're online.",
+        body: "We'll deliver it when you're online.",
       });
       return;
     }
@@ -402,7 +442,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         }
         await dequeueMutation(item.id);
       } catch (err) {
-        console.error("[PageMate] replay failed", item, err);
+        console.error("[BookMate] replay failed", item, err);
         break;
       }
     }

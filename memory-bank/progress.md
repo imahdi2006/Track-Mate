@@ -1,25 +1,23 @@
 # Progress
 
 ## Working
-- Full PageMate PWA: email/password auth, Buddy Code pairing, dashboard dual progress, library, activity, settings, book detail
-- Local two-tab demo (same email/password restores the same user + pair; HMAC session token + remember user id)
-- Local Incognito join **and live page sync** on the same Next server via `.data/pairs.json` (merge + 2s poll)
-- Share a **book** (`ShareBookButton`), not the account
-- Logout confirmation modal
-- Password reset: Resend emails a Gmail/inbox link to `/reset-password?token=`
-- Optimistic page turns with debounce/mutex + offline queue
-- PWA: manifest, sw.js, install sheet, update toast, Web Push client + `/api/push/send` (needs VAPID keys in `.env.local`)
-- Dark/light theme via sun/moon switch; Settings has a single switch under Appearance
-- Vazirmatn for Persian/Arabic (`dir="auto"` + `.pm-bidi`)
-- Book detail: edit, leave (Want), remove from shared shelf
-- Cover art via Open Library lookup or a generated title card (logo is not a jacket)
-- Local Web Push send via `.data/pairs.json` subscriptions; Settings test ping
+- Supabase Auth path (signup / signin / reset) when `NEXT_PUBLIC_SUPABASE_*` set
+- Multi-member rooms (max 5): create with name + cap, join by code, kick, leave, delete
+- Empty shelf on room create (no sample seed book)
+- Book-first invites + room invite warning + ShareLinkModal copy fallback
+- Cross-device sync via Supabase hydrate + Realtime (cloud) or local SSE (demo)
+- Push API fans out to room members (service role) on Vercel
+- Local SQLite `/api/auth/*` and `/api/pairs/*` return 501 when Supabase configured
+- PWA install + push copy updated for HTTPS requirement
+- Deploy guide: `docs/VERCEL_DEPLOY.md`
 
-## Known issues
-- Two **phones** still need Supabase (or one shared Next host) for live page sync. Incognito on the **same** `localhost` port now joins and stays live via `.data/pairs.json`.
-- Push stays off until VAPID keys exist and Next is restarted (`NEXT_PUBLIC_*` is compile-time). iOS needs Home Screen.
-- Existing localStorage books keep their old titles; new pairs seed a Persian sample title.
+## Known issues / follow-ups
+- Apply `0001` + `0002` on a fresh Supabase project before first Vercel deploy
+- Confirm email (Supabase) may be required depending on project Auth settings
+- Multi-member progress UI shows you + primary other (+N); not five full bars
+- Legacy VPS SQLite users are not auto-migrated
 
 ## Optional next
-- Supabase for two real devices
-- iOS Home Screen install before testing push
+- Room rename / transfer ownership
+- Read-only invite role
+- Richer multi-member progress chart

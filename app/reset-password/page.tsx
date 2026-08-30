@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PageMateLogo } from "@/components/branding/PageMateLogo";
+import { BookMateLogo } from "@/components/branding/BookMateLogo";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
@@ -66,7 +66,7 @@ function ResetPasswordForm() {
     <div className="mx-auto flex min-h-dvh max-w-lg flex-col justify-center px-5 py-10">
       <div className="glass rounded-3xl p-6">
         <div className="flex items-start justify-between gap-3">
-          <PageMateLogo size={44} withWordmark />
+          <BookMateLogo size={44} withWordmark />
           <ThemeSwitch />
         </div>
         <h1 className="font-display mt-5 text-2xl text-cream">New password</h1>

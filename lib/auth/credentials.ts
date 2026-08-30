@@ -1,3 +1,5 @@
+import { hmacSha256Hex, sha256Hex } from "@/lib/auth/browser-crypto";
+
 const CRED_KEY = "pagemate-credentials";
 const DEVICE_SECRET_KEY = "pagemate-device-secret";
 const ACCESS_TOKEN_KEY = "pagemate-access-token";
@@ -48,8 +50,7 @@ export function normalizeEmail(email: string): string {
 
 export async function hashPassword(password: string, salt: string): Promise<string> {
   const data = new TextEncoder().encode(`${salt}:${password}`);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return bytesToHex(digest);
+  return sha256Hex(data);
 }
 
 export function readCredentials(): Record<string, StoredCredential> {
@@ -76,15 +77,9 @@ function deviceSecret(): string {
 }
 
 async function signBytes(secret: string, payload: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-  return bytesToHex(sig);
+  const key = new TextEncoder().encode(secret);
+  const data = new TextEncoder().encode(payload);
+  return hmacSha256Hex(key, data);
 }
 
 export async function issueAccessToken(claims: Omit<SessionClaims, "exp">, ttlMs = 1000 * 60 * 60 * 24 * 30): Promise<string> {
@@ -93,7 +88,6 @@ export async function issueAccessToken(claims: Omit<SessionClaims, "exp">, ttlMs
   const sig = await signBytes(deviceSecret(), payload);
   const token = `${payload}.${sig}`;
   sessionStorage.setItem(ACCESS_TOKEN_KEY, token);
-  localStorage.setItem(REMEMBER_USER_KEY, claims.sub);
   return token;
 }
 

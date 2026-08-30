@@ -6,9 +6,12 @@ export type ActivityKind =
   | "note"
   | "book_added"
   | "book_completed"
-  | "pair_joined";
+  | "pair_joined"
+  | "room_joined";
 
 export type ReactionEmoji = "🔥" | "👏" | "😮" | "💛" | "📖";
+
+export type RoomMemberRole = "owner" | "member";
 
 export interface Profile {
   id: string;
@@ -18,17 +21,59 @@ export interface Profile {
   createdAt: string;
 }
 
+export interface ReadingRoom {
+  id: string;
+  inviteCode: string;
+  name: string;
+  ownerId: string;
+  maxMembers: number;
+  createdAt: string;
+}
+
+export interface RoomMember {
+  roomId: string;
+  userId: string;
+  role: RoomMemberRole;
+  joinedAt: string;
+  profile: Profile | null;
+}
+
+/** Local / pair-doc wire shape (maps to ReadingRoom via inviteCode = buddyCode). */
 export interface ReadingPair {
   id: string;
   buddyCode: string;
   userAId: string;
   userBId: string | null;
   createdAt: string;
+  name?: string;
+  maxMembers?: number;
+  /** Extra members beyond userA/userB (local multi-member). */
+  memberIds?: string[];
+}
+
+export function roomFromPair(pair: ReadingPair): ReadingRoom {
+  return {
+    id: pair.id,
+    inviteCode: pair.buddyCode,
+    name: pair.name ?? "Reading room",
+    ownerId: pair.userAId,
+    maxMembers: pair.maxMembers ?? 2,
+    createdAt: pair.createdAt,
+  };
+}
+
+export function pairMemberIds(pair: ReadingPair): string[] {
+  const ids = [pair.userAId, pair.userBId, ...(pair.memberIds ?? [])].filter(
+    (id): id is string => Boolean(id),
+  );
+  return [...new Set(ids)];
 }
 
 export interface Book {
   id: string;
-  pairId: string;
+  roomId: string;
+  /** @deprecated Prefer roomId */
+  pairId?: string;
   title: string;
   author: string;
   totalPages: number;
@@ -50,7 +95,9 @@ export interface ReadingProgress {
 
 export interface Activity {
   id: string;
-  pairId: string;
+  roomId: string;
+  /** @deprecated Prefer roomId */
+  pairId?: string;
   bookId: string | null;
   userId: string;
   kind: ActivityKind;
@@ -78,10 +125,21 @@ export interface PushSubscriptionRecord {
   createdAt: string;
 }
 
-export interface PageMateSnapshot {
+export interface RoomSummary {
+  room: ReadingRoom;
+  memberCount: number;
+  role: RoomMemberRole;
+}
+
+export interface BookMateSnapshot {
   profile: Profile | null;
-  pair: ReadingPair | null;
+  rooms: RoomSummary[];
+  room: ReadingRoom | null;
+  members: RoomMember[];
+  /** @deprecated Prefer members — other people in the active room */
   buddy: Profile | null;
+  /** @deprecated Prefer room */
+  pair: ReadingRoom | null;
   books: Book[];
   progress: ReadingProgress[];
   activities: Activity[];
@@ -155,11 +213,14 @@ export type QueuedMutation =
       payload: { bookId: string };
     };
 
-export function emptySnapshot(): PageMateSnapshot {
+export function emptySnapshot(): BookMateSnapshot {
   return {
     profile: null,
-    pair: null,
+    rooms: [],
+    room: null,
+    members: [],
     buddy: null,
+    pair: null,
     books: [],
     progress: [],
     activities: [],
@@ -174,4 +235,9 @@ export interface AuthPayload {
   email: string;
   password: string;
   mode: "signin" | "signup";
+}
+
+export interface CreateRoomInput {
+  name?: string;
+  maxMembers?: number;
 }

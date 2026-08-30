@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { localApiUnavailable } from "@/lib/auth/local-api-guard";
 import { getPairDoc, upsertPairDoc, type PairDoc } from "@/lib/auth/pair-store";
 
 export const runtime = "nodejs";
@@ -7,6 +8,8 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ code: string }> },
 ) {
+  const blocked = localApiUnavailable();
+  if (blocked) return blocked;
   const { code } = await params;
   const doc = await getPairDoc(code);
   if (!doc) {
@@ -22,6 +25,8 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ code: string }> },
 ) {
+  const blocked = localApiUnavailable();
+  if (blocked) return blocked;
   const { code } = await params;
   let body: PairDoc;
   try {
@@ -33,6 +38,6 @@ export async function PUT(
     return NextResponse.json({ message: "Missing pair." }, { status: 400 });
   }
   body.pair.buddyCode = code.trim().toUpperCase();
-  await upsertPairDoc(body);
-  return NextResponse.json({ ok: true });
+  const merged = await upsertPairDoc(body);
+  return NextResponse.json(merged, { headers: { "Cache-Control": "no-store" } });
 }

@@ -5,26 +5,34 @@ import type {
   AuthPayload,
   Book,
   BookStatus,
+  CreateRoomInput,
   MicroNote,
-  PageMateSnapshot,
+  BookMateSnapshot,
   Profile,
   PushSubscriptionRecord,
   ReactionEmoji,
-  ReadingPair,
+  ReadingRoom,
 } from "@/lib/types";
 
-export type ProgressListener = (snapshot: Partial<PageMateSnapshot>) => void;
+export type ProgressListener = (snapshot: Partial<BookMateSnapshot>) => void;
 
 export interface SyncAdapter {
   readonly mode: "local" | "supabase";
-  hydrate(): Promise<PageMateSnapshot>;
+  hydrate(): Promise<BookMateSnapshot>;
   authenticate(payload: AuthPayload): Promise<Profile>;
-  requestPasswordReset(email: string): Promise<{ emailed: boolean; message: string }>;
+  requestPasswordReset(email: string): Promise<{ emailed: boolean; message: string; resetUrl?: string }>;
   signOut(): Promise<void>;
-  createPair(): Promise<ReadingPair>;
-  joinPair(
-    buddyCode: string,
-  ): Promise<{ pair: ReadingPair; buddy: Profile | null }>;
+  createRoom(input?: CreateRoomInput): Promise<ReadingRoom>;
+  joinRoom(inviteCode: string): Promise<{ room: ReadingRoom }>;
+  leaveRoom(): Promise<void>;
+  deleteRoom(): Promise<void>;
+  kickMember(userId: string): Promise<void>;
+  setActiveRoom(roomId: string): Promise<void>;
+  /** @deprecated Use createRoom */
+  createPair(): Promise<ReadingRoom>;
+  /** @deprecated Use joinRoom */
+  joinPair(buddyCode: string): Promise<{ pair: ReadingRoom; buddy: Profile | null }>;
+  /** @deprecated Use leaveRoom */
   leavePair(): Promise<void>;
   updateProfile(patch: Partial<Pick<Profile, "displayName">>): Promise<Profile>;
   addBook(input: {
@@ -61,7 +69,7 @@ export interface SyncAdapter {
 }
 
 export function activityFromPageUpdate(input: {
-  pairId: string;
+  roomId: string;
   bookId: string;
   userId: string;
   page: number;
@@ -70,7 +78,7 @@ export function activityFromPageUpdate(input: {
 }): Activity {
   return {
     id: crypto.randomUUID?.() ?? `act_${Date.now()}`,
-    pairId: input.pairId,
+    roomId: input.roomId,
     bookId: input.bookId,
     userId: input.userId,
     kind: "page_update",

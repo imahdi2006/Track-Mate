@@ -83,7 +83,7 @@ export function BookDetailScreen({ bookId }: { bookId: string }) {
   const addedByBuddy = Boolean(buddy && book.createdBy === buddy.id);
 
   async function leaveBook() {
-    await setStatus(book.id, "want_to_read");
+    await setStatus(bookId, "want_to_read");
     useToastStore.getState().push({
       title: "Moved off the current pile",
       body: "It’s in Want — your buddy still has it on the shared shelf.",
@@ -95,7 +95,7 @@ export function BookDetailScreen({ bookId }: { bookId: string }) {
   async function confirmDelete() {
     setBusy(true);
     try {
-      await removeBook(book.id);
+      await removeBook(bookId);
       useToastStore.getState().push({
         title: "Removed from your shelf",
         body: "This title is gone for both of you.",

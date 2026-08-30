@@ -12,30 +12,41 @@ export async function syncServerAccount(input: {
   profileId: string;
   displayName: string;
   mode: "signup" | "signin";
-}): Promise<void> {
+}): Promise<{ profileId: string; displayName: string; email: string }> {
   const res = await fetch("/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  if (res.ok) return;
   const body = await readJson(res);
-  throw new Error(typeof body.message === "string" ? body.message : "Couldn’t save account");
+  if (!res.ok) {
+    throw new Error(typeof body.message === "string" ? body.message : "Couldn’t save account");
+  }
+  return {
+    profileId: String(body.profileId),
+    displayName: String(body.displayName ?? "Reader"),
+    email: String(body.email),
+  };
 }
 
 export async function loginServerAccount(
   email: string,
   password: string,
-): Promise<{ profileId: string; displayName: string; email: string } | null> {
+): Promise<{ profileId: string; displayName: string; email: string }> {
   const res = await fetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  if (res.status === 401) return null;
   const body = await readJson(res);
   if (!res.ok) {
-    throw new Error(typeof body.message === "string" ? body.message : "Couldn’t sign in");
+    throw new Error(
+      typeof body.message === "string"
+        ? body.message
+        : res.status === 401
+          ? "Wrong email or password."
+          : "Couldn’t sign in",
+    );
   }
   return {
     profileId: String(body.profileId),
@@ -47,7 +58,7 @@ export async function loginServerAccount(
 export async function requestServerPasswordReset(
   email: string,
   origin: string,
-): Promise<{ emailed: boolean; message: string }> {
+): Promise<{ emailed: boolean; message: string; resetUrl?: string }> {
   const res = await fetch("/api/auth/forgot-password", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -59,6 +70,7 @@ export async function requestServerPasswordReset(
   }
   return {
     emailed: Boolean(body.emailed),
+    resetUrl: typeof body.resetUrl === "string" ? body.resetUrl : undefined,
     message:
       typeof body.message === "string"
         ? body.message

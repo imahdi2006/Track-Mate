@@ -1,8 +1,8 @@
 {
-  "name": "pagemate",
+  "name": "bookmate",
   "version": "1.0.0",
   "private": true,
-  "description": "PageMate — a PWA for two readers to track shared book progress in real time.",
+  "description": "BookMate — a PWA for two readers to track shared book progress in real time.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -11,11 +11,16 @@
     "icons": "node scripts/generate-icons.mjs",
     "vapid": "node scripts/generate-vapid-keys.mjs",
     "docs:pdf": "node scripts/generate-docs-pdf.mjs",
+    "deploy:vps": "node scripts/deploy-vps.mjs",
+    "deploy:node": "node scripts/upload-node-vps.mjs",
+    "deploy:modules": "node scripts/upload-modules-vps.mjs",
+    "start:vps": "next start -p 8585",
     "postinstall": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.49.1",
+    "better-sqlite3": "^11.9.1",
     "canvas-confetti": "^1.9.3",
     "clsx": "^2.1.1",
     "framer-motion": "^12.4.10",
@@ -32,6 +37,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.0",
     "@tailwindcss/postcss": "^4.0.14",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^22.13.10",
     "@types/react": "^19.0.10",

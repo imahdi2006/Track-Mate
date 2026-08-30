@@ -1,30 +1,36 @@
-# PageMate — Cursor project intelligence
+# BookMate — Cursor project intelligence
 
 ## Product
-- Name is **PageMate**.
+- Name is **BookMate**.
 - Dark-first PWA with a light theme toggle (sun/moon switch).
-- Local demo must work with zero env vars. Supabase is opt-in.
+- Local demo works with zero env vars (SQLite). Production is **Vercel + Supabase**.
+- Reading **rooms** up to **5** members; creator is **owner** (kick / delete room).
 
 ## Architecture rules
 - UI reads **only** from `useSessionStore`. Never fetch Supabase from a component.
 - Persistence goes through `SyncAdapter` (`local-adapter` | `supabase-adapter`).
 - Page turns: optimistic Zustand → `debounceMutex` 420ms → adapter. Persist the **latest** page, not every tap.
-- Identity: email + password. Local adapter stores salted SHA-256 hashes and issues an HMAC session token (`pagemate-access-token`). Same email keeps the same user, pair, and buddy code.
-- Sign out is confirmed in a modal. Forgot-password emails go through Resend (`RESEND_API_KEY` server-only, `app/api/auth/forgot-password`). Reset links land on `/reset-password?token=`. Supabase reset remains available when configured.
-- UI reads **only** from `useSessionStore`. Never fetch Supabase from a component.
+- **Production auth:** Supabase Auth (email/password + reset emails).
+- **Local demo auth:** salted SHA-256 + HMAC (`pagemate-access-token`) via `/api/auth/*` (returns 501 when Supabase env is set).
+- Sign out is confirmed in a modal.
 - Do not cache `/api/*` or cross-origin in `public/sw.js`.
-- Push send lives in `app/api/push/send/route.ts` (Node runtime, not Edge). `web-push` + VAPID private key stay server-side.
-- iOS Web Push requires Home Screen / standalone. Install prompt on iOS is a tutorial, not `beforeinstallprompt`.
+- Push send lives in `app/api/push/send/route.ts` (Node runtime). Fans out to **room members** via service role when Supabase is configured.
+- iOS Web Push requires Home Screen / standalone + **HTTPS**.
+
+## Rooms & invites
+- Primary invite: **Share this book** → `/join/{code}?book={id}` (read+write membership).
+- Secondary: room invite with warning that the **whole shelf** is shared.
+- Never share account passwords. No read-only role in v1.
+- New rooms start with an **empty shelf** (no sample seed book).
+- Schema: `reading_rooms` + `room_members` (`supabase/migrations/0002_rooms.sql`).
 
 ## Design
 - Colors: canvas `#0F172A`, brand `#6366F1`, accent `#F59E0B`, cream `#F5F0E8`.
-- Logo: `components/branding/PageMateLogo.tsx` (two overlapping pages / infinity). Do not replace with a raster favicon-only mark.
-- Fonts: Outfit (UI) + Fraunces (display) + Vazirmatn (Persian/Arabic). `dir="auto"` / `.pm-bidi` put Vazirmatn first. Outfit/Fraunces use `adjustFontFallback: false` so Arabic glyphs are not swallowed by the Latin fallback.
-- Share **a book** (`/join/{code}?book={id}` via `ShareBookButton`). Do not share the account from Settings.
-- Theme: `useThemeStore` + `ThemeSwitch` (CSS sun/moon). Persist `pagemate-theme`. Settings shows the switch only under Appearance (not also in the header). Visible on auth, pairing, home, library, and activity.
-- Local demo pairs are mirrored to `GET/PUT /api/pairs/[code]` (`.data/pairs.json`) so Incognito on the same Next server can join. PUTs merge; clients poll every 2s so page turns stay live. Same URL/port in both windows.
+- Logo: `components/branding/BookMateLogo.tsx`.
+- Fonts: Outfit + Fraunces + Vazirmatn via `next/font/local` from `app/fonts`. `adjustFontFallback: false`. Re-fetch with `node scripts/fetch-fonts.mjs`.
+- Theme: `useThemeStore` + `ThemeSwitch`. Persist `pagemate-theme`. Settings → Appearance only.
 - Bottom nav + `env(safe-area-inset-bottom)`. Touch targets ≥ 44px.
-- Glass: `.glass` / `.glass-strong` in `app/globals.css`. Light theme overrides live on `html.light`.
+- Glass: `.glass` / `.glass-strong` in `app/globals.css`. Light theme on `html.light`.
 
 ## Docs
-When changing debounce, RLS, SW, or push, update `docs/ARCHITECTURE_AND_IMPLEMENTATION.md` in the same change.
+When changing debounce, RLS, SW, rooms, or push, update `docs/ARCHITECTURE_AND_IMPLEMENTATION.md` and `docs/VERCEL_DEPLOY.md` as needed.

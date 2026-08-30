@@ -53,12 +53,18 @@ function mergeProgress(left: ReadingProgress[], right: ReadingProgress[]): Readi
 }
 
 function mergePairMeta(base: ReadingPair, incoming: ReadingPair): ReadingPair {
+  const memberIds = [
+    ...new Set([...(base.memberIds ?? []), ...(incoming.memberIds ?? [])]),
+  ].filter((id) => id && id !== base.userAId && id !== (base.userBId || incoming.userBId));
   return {
     id: base.id || incoming.id,
     buddyCode: (incoming.buddyCode || base.buddyCode).trim().toUpperCase(),
     userAId: base.userAId || incoming.userAId,
     userBId: base.userBId || incoming.userBId,
     createdAt: stamp(base.createdAt) <= stamp(incoming.createdAt) ? base.createdAt : incoming.createdAt,
+    name: incoming.name || base.name,
+    maxMembers: Math.max(base.maxMembers ?? 2, incoming.maxMembers ?? 2),
+    memberIds,
   };
 }
 
@@ -94,10 +100,11 @@ export function mergePairDocs(base: PairDocLike, incoming: PairDocLike): PairDoc
   const books = mergeById(base.books, incoming.books, (a, b) => ({
     ...a,
     ...b,
+    roomId: pair.id,
     pairId: pair.id,
     coverUrl: pickCover(a, b),
   }))
-    .map((book) => ({ ...book, pairId: pair.id }))
+    .map((book) => ({ ...book, roomId: pair.id, pairId: pair.id }))
     .filter((book) => !removed.has(book.id));
   const progress = mergeProgress(base.progress, incoming.progress).filter((p) => !removed.has(p.bookId));
   const notes = mergeById(base.notes, incoming.notes, (a, b) =>
@@ -106,6 +113,7 @@ export function mergePairDocs(base: PairDocLike, incoming: PairDocLike): PairDoc
   const activities = mergeById(base.activities, incoming.activities, (a, b) =>
     stamp(a.createdAt) >= stamp(b.createdAt) ? a : b,
   )
+    .map((a) => ({ ...a, roomId: a.roomId || a.pairId || pair.id, pairId: pair.id }))
     .filter((a) => !a.bookId || !removed.has(a.bookId))
     .sort((a, b) => stamp(b.createdAt) - stamp(a.createdAt))
     .slice(0, 200);

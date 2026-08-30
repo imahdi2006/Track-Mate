@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { KeyRound, Mail, Sparkles } from "lucide-react";
-import { PageMateLogo } from "@/components/branding/PageMateLogo";
+import { BookMateLogo } from "@/components/branding/BookMateLogo";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
@@ -22,6 +22,7 @@ export function AuthScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resetUrl, setResetUrl] = useState<string | null>(null);
   const [pendingJoin, setPendingJoin] = useState<string | null>(null);
   const cloud = isSupabaseConfigured();
 
@@ -34,10 +35,14 @@ export function AuthScreen() {
     if (view === "forgot") {
       if (!email.trim()) return;
       setBusy(true);
+      setResetUrl(null);
       try {
         const result = await requestPasswordReset(email.trim());
+        if (result.resetUrl) {
+          setResetUrl(result.resetUrl);
+        }
         useToastStore.getState().push({
-          title: result.emailed ? "Check Gmail" : "Reset isn’t emailed here",
+          title: result.emailed ? "Check your email" : "Copy your reset link",
           body: result.message,
           tone: result.emailed ? "success" : "warn",
         });
@@ -83,7 +88,7 @@ export function AuthScreen() {
         className="glass rounded-3xl p-6"
       >
         <div className="flex items-start justify-between gap-3">
-          <PageMateLogo size={52} withWordmark wordmarkClassName="text-2xl" />
+          <BookMateLogo size={52} withWordmark wordmarkClassName="text-2xl" />
           <ThemeSwitch />
         </div>
         <h1 className="font-display mt-6 text-3xl leading-tight text-cream">
@@ -178,7 +183,9 @@ export function AuthScreen() {
 
           {view === "forgot" ? (
             <p className="text-xs text-muted">
-              We’ll email a reset link (check Gmail and spam). It expires in one hour.
+              {cloud
+                ? "We’ll email a reset link. It expires in one hour."
+                : "On this server we show a reset link here when email isn’t configured. It expires in one hour."}
             </p>
           ) : (
             <p className="text-xs text-muted">
@@ -209,8 +216,37 @@ export function AuthScreen() {
                   : "Sign in"}
           </Button>
 
+          {resetUrl ? (
+            <div className="rounded-2xl bg-white/5 p-3 space-y-2">
+              <p className="text-xs text-muted">Reset link (tap copy, open in this browser):</p>
+              <p className="break-all text-xs text-cream">{resetUrl}</p>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(resetUrl);
+                  useToastStore.getState().push({
+                    title: "Link copied",
+                    body: "Paste it in the address bar or a new tab.",
+                    tone: "success",
+                  });
+                }}
+              >
+                Copy reset link
+              </Button>
+            </div>
+          ) : null}
+
           {view === "forgot" ? (
-            <Button type="button" variant="ghost" onClick={() => setView("signin")}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setResetUrl(null);
+                setView("signin");
+              }}
+            >
               Back to sign in
             </Button>
           ) : null}

@@ -14,9 +14,14 @@ function originNow(): string {
   return window.location.origin.replace(/\/$/, "");
 }
 
-export function bookShareUrl(bookId: string, buddyCode: string): string {
-  const code = parseBuddyCode(buddyCode);
+export function bookShareUrl(bookId: string, inviteCode: string): string {
+  const code = parseBuddyCode(inviteCode);
   return `${originNow()}/join/${code}?book=${encodeURIComponent(bookId)}`;
+}
+
+export function roomShareUrl(inviteCode: string): string {
+  const code = parseBuddyCode(inviteCode);
+  return `${originNow()}/join/${code}`;
 }
 
 export function readPendingJoinCode(): string | null {
@@ -60,11 +65,13 @@ export function takePendingBookId(): string | null {
   return id;
 }
 
+export type ShareResult = "shared" | "copied" | "manual";
+
 export async function shareOrCopyBook(input: {
   bookId: string;
   buddyCode: string;
   title: string;
-}): Promise<"shared" | "copied"> {
+}): Promise<ShareResult> {
   const url = bookShareUrl(input.bookId, input.buddyCode);
   const text = `Let’s read “${input.title}” together on ${APP_NAME}.`;
 
@@ -77,6 +84,29 @@ export async function shareOrCopyBook(input: {
     }
   }
 
-  await navigator.clipboard.writeText(url);
-  return "copied";
+  try {
+    await navigator.clipboard.writeText(url);
+    return "copied";
+  } catch {
+    return "manual";
+  }
+}
+
+export async function shareOrCopyRoom(inviteCode: string): Promise<ShareResult> {
+  const url = roomShareUrl(inviteCode);
+  const text = `Join my reading room on ${APP_NAME}.`;
+  if (typeof navigator.share === "function") {
+    try {
+      await navigator.share({ title: APP_NAME, text, url });
+      return "shared";
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") throw err;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    return "copied";
+  } catch {
+    return "manual";
+  }
 }

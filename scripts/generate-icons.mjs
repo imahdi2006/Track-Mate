@@ -1,5 +1,5 @@
 /**
- * Rasterizes PageMate icons to PNG without native addons.
+ * Rasterizes BookMate icons to PNG without native addons.
  * Two overlapping ellipses (indigo + amber) on navy, matching the vector logo.
  *
  * Usage: node scripts/generate-icons.mjs
@@ -173,4 +173,4 @@ writeFileSync(join(OUT, "apple-touch-icon.png"), paintIcon(180));
 writeFileSync(join(OUT, "badge-72.png"), paintBadge(72));
 
 const hash = createHash("sha1").update(paintIcon(32)).digest("hex").slice(0, 8);
-console.log(`PageMate icons written to public/icons (${hash})`);
+console.log(`BookMate icons written to public/icons (${hash})`);

@@ -29,7 +29,7 @@ export function debounceMutex(
         .catch(() => undefined)
         .then(fn)
         .catch((err) => {
-          console.error(`[PageMate] mutex ${key} failed`, err);
+          console.error(`[BookMate] mutex ${key} failed`, err);
         });
       tails.set(key, next);
     }, waitMs),

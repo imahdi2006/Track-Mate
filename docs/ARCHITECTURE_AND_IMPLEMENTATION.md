@@ -1,8 +1,25 @@
-# PageMate — Architecture & Implementation
+# BookMate — Architecture & Implementation
 
 > A field manual for the engineer who has to own this codebase at 2 a.m.
 > Every subsystem below maps 1:1 onto files in this repository. If a sentence
 > claims the client does X, you can open the cited file and find the line.
+
+---
+
+## 0. Production vs local (2026)
+
+| Mode | Auth | Data | Host |
+| --- | --- | --- | --- |
+| **Production** | Supabase Auth | `reading_rooms` + `room_members` (max 5) + shelf tables with `room_id` | Vercel HTTPS |
+| **Local demo** | `/api/auth/*` + SQLite | Pair-doc mirror in `pair_docs` (room-shaped in the client) | `npm run dev` |
+
+Apply SQL: `supabase/migrations/0001_init.sql` then `0002_rooms.sql`.
+Deploy steps: [`docs/VERCEL_DEPLOY.md`](./VERCEL_DEPLOY.md).
+
+Rooms API on the store: `createRoom`, `joinRoom`, `leaveRoom`, `deleteRoom`, `kickMember`, `setActiveRoom`.
+Empty shelf on create (no sample seed). Share fallback: `ShareLinkModal`.
+
+Older sections below still mention `reading_pairs` / `pair_id` historically; **cloud schema after `0002` uses rooms.**
 
 ---
 
@@ -23,7 +40,7 @@
 
 ## 1. System architecture & data flow
 
-PageMate is a **Progressive Web App** with a thin Next.js App Router shell, a
+BookMate is a **Progressive Web App** with a thin Next.js App Router shell, a
 client-owned session store, and a **pluggable sync adapter**.
 
 ```
@@ -45,7 +62,7 @@ client-owned session store, and a **pluggable sync adapter**.
 │                                                                          │
 │  public/sw.js  ◄── registerServiceWorker()  ◄── AppProviders             │
 │       │                                                                  │
-│       ├─ Cache (pagemate-v1)                                             │
+│       ├─ Cache (BookMate-v3)                                             │
 │       ├─ push / notificationclick                                        │
 │       └─ SKIP_WAITING ◄── usePWAUpdate                                   │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -70,7 +87,7 @@ It talks to `SyncAdapter` (`lib/sync/types.ts`):
 | --- | --- | --- |
 | `hydrate` | `sessionStorage` user id + `localStorage` pair blob | `auth.getUser` + joined selects |
 | `updatePage` | mutate pair blob, `BroadcastChannel` | upsert `reading_progress`, insert `activities` |
-| `subscribe` | `BroadcastChannel('pagemate-sync')` | `postgres_changes` on 5 tables |
+| `subscribe` | `BroadcastChannel('BookMate-sync')` | `postgres_changes` on 5 tables |
 | `savePushSubscription` | stored on the pair blob | upsert `push_subscriptions` |
 
 `getAdapter()` in the session store picks Supabase when
@@ -141,16 +158,17 @@ account-wide invite.
 
 **Local demo (two tabs, one origin):**
 
-- Identity lives in **`sessionStorage`** (`pagemate-session-user-id`) so each
+- Identity lives in **`sessionStorage`** (`BookMate-session-user-id`) so each
   tab is a different person.
 - Shared pair documents live in **`localStorage`** keyed by pair id
-  (`pagemate-pair-data:<uuid>`).
-- Fan-out is `BroadcastChannel('pagemate-sync')` for **tabs in the same
+  (`BookMate-pair-data:<uuid>`).
+- Fan-out is `BroadcastChannel('BookMate-sync')` for **tabs in the same
   browser profile**. Incognito is a different profile, so it cannot see that
   channel or that `localStorage`.
 - The local adapter **PUTs** the pair to `app/api/pairs/[code]`
-  (gitignored `.data/pairs.json`). The other browser **polls GET every 2s**
-  (and on tab focus). PUTs **merge** (`lib/sync/merge-pair.ts`) so a host
+  (SQLite `pair_docs` in gitignored `.data/pagemate.db`). The other browser **subscribes to SSE**
+  (`GET /api/pairs/[code]/stream`) and receives pushes when PUT merges.
+  PUTs **merge** (`lib/sync/merge-pair.ts`) so a host
   page-turn cannot wipe `userBId` or rewind the buddy’s page. Two phones
   still need **Supabase** unless they hit this same Next host.
 
@@ -287,7 +305,7 @@ worth doing if this ever leaves the “two friends” threat model.
 ### 2.5 Realtime publication
 
 The migration adds five tables to `supabase_realtime`. The client channel is
-named `pagemate-realtime` and listens for `event: "*"` on
+named `BookMate-realtime` and listens for `event: "*"` on
 `reading_progress`, `activities`, `micro_notes`, `books`, `reading_pairs`.
 On **any** of those events the adapter refetches the whole snapshot
 (`fetchSnapshot`). That is deliberately simple: the working set for one pair
@@ -431,7 +449,7 @@ Hook: `hooks/usePushNotifications.ts`.
 
 1. Feature-detect `serviceWorker`, `PushManager`, `Notification`.
 2. On first pairing, if permission is `default` and
-   `pagemate-push-prompt-seen` is unset, open `PushPrompt` after 1.8s.
+   `BookMate-push-prompt-seen` is unset, open `PushPrompt` after 1.8s.
 3. `Notification.requestPermission()` — must run in a **user-gesture** stack
    (the Enable button). Silent `subscribe()` from `useEffect` will fail on
    Safari.
@@ -472,11 +490,11 @@ Payload shape the SW expects:
 
 ```json
 {
-  "title": "PageMate",
+  "title": "BookMate",
   "body": "🔥 Mahdi just reached page 150 of 'Clean Architecture'! Catch up!",
   "bookId": "<uuid>",
   "url": "/book/<uuid>",
-  "tag": "pagemate-<uuid>"
+  "tag": "BookMate-<uuid>"
 }
 ```
 
@@ -500,7 +518,7 @@ guide walks Share → Add to Home Screen because there is **no**
 **2. User gesture for permission.**  
 `Notification.requestPermission()` from an auto-opened modal is unreliable.
 The prompt’s primary button is the gesture. After a denial, iOS will not
-ask again; Settings → PageMate is the only recovery. Surface that in the
+ask again; Settings → BookMate is the only recovery. Surface that in the
 Settings toggle error string.
 
 **3. Visible notification required.**  
@@ -560,22 +578,24 @@ in `next.config.ts`).
 ```js
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open("pagemate-v1").then((cache) => cache.addAll(PRECACHE))
+    caches.open("BookMate-v3").then((cache) => cache.addAll(PRECACHE))
   );
 });
 ```
 
-`PRECACHE` is the app shell: `/`, `/offline`, `/offline.html`, manifest,
-icons. `skipWaiting()` is **not** called here. A new worker that auto-activates
+`PRECACHE` is the offline shell: `/offline`, `/offline.html`, manifest,
+icons. `/` is **not** precached — pinning the homepage kept a stale auth bundle
+after VPS deploys. `skipWaiting()` is **not** called here. A new worker that auto-activates
 would yank the rug out from an open reading session. Activation waits for
-`SKIP_WAITING` from the Update toast **or** for all clients to close.
+`SKIP_WAITING` from the Update toast, from `registerServiceWorker()` when a
+waiting worker exists, **or** for all clients to close.
 
 `cache.addAll` is wrapped in `.catch(() => undefined)` so a single 404 during
 install (e.g. icons not generated yet) does not fail the whole worker.
 
 ### 5.2 `activate`
 
-Deletes every cache whose name is not `pagemate-v1`. Bump `CACHE_VERSION` when
+Deletes every cache whose name is not `BookMate-v3`. Bump `CACHE_VERSION` when
 you change precache contents or fetch strategy. Then `self.clients.claim()` so
 the new worker controls pages that were loaded under the old one — but only
 after it became the active worker (which is after skipWaiting or reload).
@@ -646,8 +666,8 @@ Chromium-only; TypeScript does not ship this.
 
 **`daysSince` / `readDismissed`.** Dismissal is a timestamp in `localStorage`,
 not a boolean. `INSTALL_DISMISS_DAYS` is 14 (`lib/config.ts`). After two weeks
-the banner may return. Keys: `pagemate-install-dismissed-at` (Android/desktop)
-and `pagemate-ios-install-dismissed-at` (iOS). Split keys so dismissing the
+the banner may return. Keys: `BookMate-install-dismissed-at` (Android/desktop)
+and `BookMate-ios-install-dismissed-at` (iOS). Split keys so dismissing the
 Chromium sheet does not suppress the iOS tutorial if they later open Safari.
 
 **`detectPlatform`.**
@@ -679,7 +699,7 @@ one-shot; you cannot `prompt()` twice).
 
 **Return surface.** `canNativePrompt` is true only when we have a stashed BIP
 **and** platform is android/desktop. `showIosGuide` is iOS + visible + not
-installed. Settings “Install PageMate” calls `promptInstall` or `open()`
+installed. Settings “Install BookMate” calls `promptInstall` or `open()`
 accordingly.
 
 **UI.** `components/pwa/InstallPrompt.tsx` is a glass bottom sheet. iOS gets
@@ -721,7 +741,7 @@ the page. If we reloaded first, we might request HTML under the old worker.
 waiting; the next visit (or next `updatefound`) can offer again.
 
 **UI.** `components/pwa/UpdateToast.tsx` — floating glass bar above the
-bottom nav, copy: “Update available / A newer version of PageMate is ready.”
+bottom nav, copy: “Update available / A newer version of BookMate is ready.”
 Primary: **Update & Restart**.
 
 ### 6.3 `display-mode: standalone`
@@ -772,8 +792,8 @@ queued page as an absolute set, so **replay order** matters — see 7.3.
 Files: `lib/offline/queue.ts`, `replayOfflineQueue` in the store.
 
 Queue items are `{ id, type, createdAt, payload }` in **IndexedDB** via
-`idb-keyval` (`pagemate-offline-queue`), mirrored to `localStorage`
-(`pagemate-offline-queue-ls`) because Safari private mode throws on IDB.
+`idb-keyval` (`BookMate-offline-queue`), mirrored to `localStorage`
+(`BookMate-offline-queue-ls`) because Safari private mode throws on IDB.
 
 On `setPageOptimistic`, if `navigator.onLine === false`, enqueue
 `update_page` and toast “Saved offline.” `useRealtimeProgress` listens
@@ -854,7 +874,7 @@ What it does, in order:
    timeout so a missing CDN doesn’t hang CI forever).
 7. `page.pdf` A4, `printBackground: true`, header/footer with title + page
    numbers.
-8. Writes `docs/pagemate-architecture.pdf`.
+8. Writes `docs/BookMate-architecture.pdf`.
 
 The first run downloads Chromium via Puppeteer’s installer. In CI set
 `PUPPETEER_SKIP_DOWNLOAD=0` or point `PUPPETEER_EXECUTABLE_PATH` at a
@@ -902,7 +922,7 @@ npm run dev
 
 `npm run icons` (also `postinstall`) writes `public/icons/*.png` with a
 pure-Node PNG encoder (two ellipses, navy field). Vector source:
-`public/icons/icon.svg` and `components/branding/PageMateLogo.tsx`.
+`public/icons/icon.svg` and `components/branding/BookMateLogo.tsx`.
 
 ### 9.4 Environment reference
 
@@ -922,7 +942,7 @@ pure-Node PNG encoder (two ellipses, navy field). Vector source:
 
 | Concern | Path |
 | --- | --- |
-| Logo SVG component | `components/branding/PageMateLogo.tsx` |
+| Logo SVG component | `components/branding/BookMateLogo.tsx` |
 | Design tokens | `app/globals.css` `@theme` |
 | Session + optimistic pages | `lib/store/session-store.ts` |
 | Debounce/mutex | `lib/sync/mutex.ts` |

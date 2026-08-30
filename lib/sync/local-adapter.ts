@@ -9,27 +9,27 @@ import {
   clearAccessToken,
   issueAccessToken,
   normalizeEmail,
-  readAccessToken,
-  readCredentials,
   registerLocalPassword,
-  rememberedUserId,
   verifyLocalPassword,
 } from "@/lib/auth/credentials";
-import { SAMPLE_BOOK } from "@/lib/sample-book";
+import { ACTIVE_ROOM_KEY, ROOM_MAX_MEMBERS, ROOM_MIN_MEMBERS } from "@/lib/config";
 import { mergePairDocs, pairContentFingerprint, type PairDocLike } from "@/lib/sync/merge-pair";
-import { fetchPairDoc, publishPairDoc, type RemotePairDoc } from "@/lib/sync/pair-client";
+import { fetchPairDoc, fetchPairDocForUser, publishPairDoc, subscribePairStream, type RemotePairDoc } from "@/lib/sync/pair-client";
 import type {
   Activity,
   Book,
   BookStatus,
+  CreateRoomInput,
   MicroNote,
-  PageMateSnapshot,
+  BookMateSnapshot,
   Profile,
   PushSubscriptionRecord,
   ReadingPair,
   ReadingProgress,
+  RoomMember,
+  RoomSummary,
 } from "@/lib/types";
-import { emptySnapshot } from "@/lib/types";
+import { emptySnapshot, pairMemberIds, roomFromPair } from "@/lib/types";
 import { generateBuddyCode, generateId } from "@/lib/utils";
 import { activityFromPageUpdate, type ProgressListener, type SyncAdapter } from "@/lib/sync/types";
 
@@ -106,7 +106,28 @@ function writePairData(pairId: string, data: PairData): void {
 
 function findPairForUser(userId: string): ReadingPair | null {
   const pairs = Object.values(readPairs());
-  return pairs.find((p) => p.userAId === userId || p.userBId === userId) ?? null;
+  const preferred = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_ROOM_KEY) : null;
+  const mine = pairs.filter((p) => pairMemberIds(p).includes(userId));
+  if (!mine.length) return null;
+  return mine.find((p) => p.id === preferred) ?? mine[0] ?? null;
+}
+
+function findAllPairsForUser(userId: string): ReadingPair[] {
+  return Object.values(readPairs()).filter((p) => pairMemberIds(p).includes(userId));
+}
+
+function normalizeBooks(books: Book[], roomId: string): Book[] {
+  return books.map((b) => ({
+    ...b,
+    roomId: b.roomId || b.pairId || roomId,
+  }));
+}
+
+function normalizeActivities(activities: Activity[], roomId: string): Activity[] {
+  return activities.map((a) => ({
+    ...a,
+    roomId: a.roomId || a.pairId || roomId,
+  }));
 }
 
 function findUserByEmail(email: string): Profile | null {
@@ -118,65 +139,45 @@ function findUserByEmail(email: string): Profile | null {
   );
 }
 
-function seedBook(pairId: string, createdBy: string): PairData {
-  const book: Book = {
-    id: generateId(),
-    pairId,
-    title: SAMPLE_BOOK.title,
-    author: SAMPLE_BOOK.author,
-    totalPages: SAMPLE_BOOK.totalPages,
-    coverUrl: SAMPLE_BOOK.coverUrl,
-    status: "currently_reading",
-    createdBy,
-    createdAt: nowIso(),
-    completedAt: null,
-  };
-  return {
-    books: [book],
-    progress: [
-      {
-        id: generateId(),
-        bookId: book.id,
-        userId: createdBy,
-        currentPage: 1,
-        updatedAt: nowIso(),
-      },
-    ],
-    activities: [
-      {
-        id: generateId(),
-        pairId,
-        bookId: book.id,
-        userId: createdBy,
-        kind: "book_added",
-        payload: { bookTitle: book.title },
-        createdAt: nowIso(),
-      },
-    ],
-    notes: [],
-    pushSubscriptions: [],
-    removedBookIds: [],
-  };
-}
-
-function assemble(userId: string | null): PageMateSnapshot {
+function assemble(userId: string | null): BookMateSnapshot {
   if (!userId) return emptySnapshot();
   const users = readUsers();
   const profile = users[userId] ?? null;
-  const pair = findPairForUser(userId);
   if (!profile) return emptySnapshot();
+
+  const allPairs = findAllPairsForUser(userId);
+  const rooms: RoomSummary[] = allPairs.map((p) => ({
+    room: roomFromPair(p),
+    memberCount: pairMemberIds(p).length,
+    role: p.userAId === userId ? "owner" : "member",
+  }));
+
+  const pair = findPairForUser(userId);
   if (!pair) {
-    return { ...emptySnapshot(), profile };
+    return { ...emptySnapshot(), profile, rooms };
   }
-  const buddyId = pair.userAId === userId ? pair.userBId : pair.userAId;
+
+  const room = roomFromPair(pair);
+  const memberIds = pairMemberIds(pair);
+  const members: RoomMember[] = memberIds.map((id) => ({
+    roomId: pair.id,
+    userId: id,
+    role: id === pair.userAId ? "owner" : "member",
+    joinedAt: pair.createdAt,
+    profile: users[id] ?? null,
+  }));
+  const others = members.filter((m) => m.userId !== userId);
   const data = readPairData(pair.id);
   return {
     profile,
-    pair,
-    buddy: buddyId ? (users[buddyId] ?? null) : null,
-    books: data.books,
+    rooms,
+    room,
+    members,
+    buddy: others[0]?.profile ?? null,
+    pair: room,
+    books: normalizeBooks(data.books, pair.id),
     progress: data.progress,
-    activities: data.activities,
+    activities: normalizeActivities(data.activities, pair.id),
     notes: data.notes,
     pushSubscriptions: data.pushSubscriptions.filter((s) => s.userId === userId),
     removedBookIds: data.removedBookIds ?? [],
@@ -186,14 +187,14 @@ function assemble(userId: string | null): PageMateSnapshot {
 function pairDocFromStorage(pair: ReadingPair): RemotePairDoc {
   const data = readPairData(pair.id);
   const users = readUsers();
-  const profiles = [users[pair.userAId], pair.userBId ? users[pair.userBId] : null].filter(
-    (p): p is Profile => Boolean(p),
-  );
+  const profiles = pairMemberIds(pair)
+    .map((id) => users[id])
+    .filter((p): p is Profile => Boolean(p));
   return {
     pair,
-    books: data.books,
+    books: normalizeBooks(data.books, pair.id),
     progress: data.progress,
-    activities: data.activities,
+    activities: normalizeActivities(data.activities, pair.id),
     notes: data.notes,
     profiles,
     pushSubscriptions: data.pushSubscriptions,
@@ -236,25 +237,18 @@ function applyRemotePair(doc: RemotePairDoc, preserveUserId: string | null): voi
   writeMergedDoc(mergePairDocs(localDoc, doc), preserveUserId);
 }
 
-function publishPair(pair: ReadingPair | null | undefined): void {
-  if (!pair) return;
-  void publishPairDoc(pair.buddyCode, pairDocFromStorage(pair));
-}
-
-const PULL_MS = 2000;
-
 /**
- * Local adapter: per-tab identity in sessionStorage, shared pair data in
- * localStorage, live fan-out via BroadcastChannel. Pair docs are also mirrored
- * to `/api/pairs/:code` so another browser (Incognito / second phone on this
- * Next server) can join a shared book without Supabase. That browser then
- * polls the same file so page turns stay in sync.
+ * Local adapter: identity in sessionStorage, pair data in localStorage + server
+ * (`GET/PUT /api/pairs/:code`, `GET /api/pairs/by-user/:id`). Mutations PUT
+ * and apply the merged response; other tabs/devices receive SSE pushes.
  */
 export function createLocalAdapter(): SyncAdapter {
   const listeners = new Set<ProgressListener>();
   let channel: BroadcastChannel | null = null;
-  let pullTimer: number | null = null;
-  let pulling = false;
+  let pairStreamStop: (() => void) | null = null;
+  let streamCode: string | null = null;
+  let syncing = false;
+  let streamListenersBound = false;
 
   const currentUserId = () =>
     typeof window === "undefined" ? null : sessionStorage.getItem(SESSION_USER_KEY);
@@ -269,9 +263,92 @@ export function createLocalAdapter(): SyncAdapter {
     }
   };
 
+  const applyServerDoc = (remote: RemotePairDoc) => {
+    const userId = currentUserId();
+    if (!userId) return;
+    const pair = findPairForUser(userId);
+    if (!pair || pair.buddyCode !== remote.pair.buddyCode) return;
+    const localDoc = pairDocFromStorage(pair);
+    const merged = mergePairDocs(localDoc, remote);
+    if (pairContentFingerprint(merged) === pairContentFingerprint(localDoc)) return;
+    writeMergedDoc(merged, userId);
+    notify();
+  };
+
+  const pushPairToServer = async (pair: ReadingPair) => {
+    const userId = currentUserId();
+    if (!userId) return;
+    const localDoc = pairDocFromStorage(pair);
+    const serverDoc = await publishPairDoc(pair.buddyCode, localDoc);
+    if (!serverDoc) return;
+    const merged = mergePairDocs(localDoc, serverDoc);
+    if (pairContentFingerprint(merged) !== pairContentFingerprint(localDoc)) {
+      writeMergedDoc(merged, userId);
+      notify();
+    }
+  };
+
+  const restorePairFromServer = async (userId: string): Promise<ReadingPair | null> => {
+    const remote = await fetchPairDocForUser(userId);
+    if (!remote) return null;
+    applyRemotePair(remote, userId);
+    return findPairForUser(userId);
+  };
+
+  const syncFromServer = async () => {
+    if (syncing) return;
+    const userId = currentUserId();
+    if (!userId) return;
+    let pair = findPairForUser(userId);
+    if (!pair) {
+      pair = await restorePairFromServer(userId);
+      if (!pair) return;
+    }
+    syncing = true;
+    try {
+      const remote = await fetchPairDoc(pair.buddyCode);
+      if (remote) applyServerDoc(remote);
+    } finally {
+      syncing = false;
+    }
+  };
+
+  const closePairStream = () => {
+    pairStreamStop?.();
+    pairStreamStop = null;
+    streamCode = null;
+  };
+
+  const ensurePairStream = (code: string) => {
+    if (typeof window === "undefined") return;
+    const buddyCode = code.trim().toUpperCase();
+    if (streamCode === buddyCode && pairStreamStop) return;
+    closePairStream();
+    streamCode = buddyCode;
+    pairStreamStop = subscribePairStream(buddyCode, (doc) => applyServerDoc(doc));
+  };
+
+  const bindStreamLifecycle = () => {
+    if (streamListenersBound || typeof window === "undefined") return;
+    streamListenersBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") return;
+      const userId = currentUserId();
+      const pair = userId ? findPairForUser(userId) : null;
+      if (!pair) return;
+      ensurePairStream(pair.buddyCode);
+      void syncFromServer();
+    });
+  };
+
   const emit = () => {
     notify();
-    publishPair(assemble(currentUserId()).pair);
+    const userId = currentUserId();
+    const pair = userId ? findPairForUser(userId) : null;
+    if (pair) {
+      ensurePairStream(pair.buddyCode);
+      void pushPairToServer(pair);
+    }
   };
 
   const pingBuddy = (payload: Record<string, unknown>) => {
@@ -289,49 +366,12 @@ export function createLocalAdapter(): SyncAdapter {
     }).catch(() => undefined);
   };
 
-  const pullRemote = async () => {
-    if (pulling) return;
-    const userId = currentUserId();
-    if (!userId) return;
-    const pair = findPairForUser(userId);
-    if (!pair) return;
-    pulling = true;
-    try {
-      const remote = await fetchPairDoc(pair.buddyCode);
-      if (!remote) return;
-      const localDoc = pairDocFromStorage(pair);
-      const merged = mergePairDocs(localDoc, remote);
-      const localFp = pairContentFingerprint(localDoc);
-      const mergedFp = pairContentFingerprint(merged);
-      const remoteFp = pairContentFingerprint(remote);
-      if (mergedFp !== localFp) {
-        writeMergedDoc(merged, userId);
-        notify();
-      }
-      if (mergedFp !== remoteFp) {
-        publishPair(merged.pair);
-      }
-    } finally {
-      pulling = false;
-    }
-  };
-
   const ensureChannel = () => {
     if (channel || typeof BroadcastChannel === "undefined") return;
     channel = new BroadcastChannel(CHANNEL);
     channel.onmessage = () => {
       listeners.forEach((l) => l(assemble(currentUserId())));
     };
-  };
-
-  const ensurePull = () => {
-    if (typeof window === "undefined" || pullTimer !== null) return;
-    pullTimer = window.setInterval(() => void pullRemote(), PULL_MS);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") void pullRemote();
-    });
-    window.addEventListener("focus", () => void pullRemote());
-    void pullRemote();
   };
 
   const requireUser = (): string => {
@@ -349,24 +389,22 @@ export function createLocalAdapter(): SyncAdapter {
 
     async hydrate() {
       ensureChannel();
-      ensurePull();
-      let userId = currentUserId();
-      if (!userId) {
-        const claims = await readAccessToken();
-        if (claims && readUsers()[claims.sub]) {
-          userId = claims.sub;
-          sessionStorage.setItem(SESSION_USER_KEY, userId);
-        } else {
-          const remembered = rememberedUserId();
-          if (remembered && readUsers()[remembered]) {
-            userId = remembered;
-            sessionStorage.setItem(SESSION_USER_KEY, userId);
-          }
-        }
+      bindStreamLifecycle();
+      // Drop legacy auto-login keys from older builds.
+      localStorage.removeItem("pagemate-remember-user-id");
+      if (!currentUserId() && typeof window !== "undefined" && sessionStorage.getItem("pagemate-access-token")) {
+        clearAccessToken();
       }
-      const snap = assemble(userId);
-      publishPair(snap.pair);
-      return snap;
+      const userId = currentUserId();
+      if (userId) {
+        if (!findPairForUser(userId)) {
+          await restorePairFromServer(userId);
+        }
+        await syncFromServer();
+        const pair = findPairForUser(userId);
+        if (pair) ensurePairStream(pair.buddyCode);
+      }
+      return assemble(userId);
     },
 
     async authenticate(payload) {
@@ -375,84 +413,53 @@ export function createLocalAdapter(): SyncAdapter {
       if (payload.password.length < 6) throw new Error("Password must be at least 6 characters.");
 
       const users = readUsers();
-      let profile: Profile;
+      const displayName = payload.displayName.trim() || email.split("@")[0] || "Reader";
 
+      let remote: { profileId: string; displayName: string; email: string };
       if (payload.mode === "signup") {
-        if (readCredentials()[email] || findUserByEmail(email)) {
-          throw new Error("An account with that email already exists. Sign in instead.");
-        }
-        profile = {
-          id: generateId(),
-          displayName: payload.displayName.trim() || "Reader",
+        remote = await syncServerAccount({
           email,
-          avatarHue: Math.floor(Math.random() * 360),
-          createdAt: nowIso(),
-        };
-        try {
-          await syncServerAccount({
-            email,
-            password: payload.password,
-            profileId: profile.id,
-            displayName: profile.displayName,
-            mode: "signup",
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : "";
-          if (message.toLowerCase().includes("already exists")) throw err;
-        }
-        users[profile.id] = profile;
-        writeUsers(users);
-        await registerLocalPassword(email, payload.password, profile.id);
+          password: payload.password,
+          profileId: generateId(),
+          displayName,
+          mode: "signup",
+        });
       } else {
-        let cred: { profileId: string };
         try {
-          cred = await verifyLocalPassword(email, payload.password);
-        } catch (localErr) {
-          const remote = await loginServerAccount(email, payload.password).catch(() => null);
-          if (!remote) throw localErr;
-          await registerLocalPassword(email, payload.password, remote.profileId);
-          cred = { profileId: remote.profileId };
-          if (!users[remote.profileId] && !findUserByEmail(email)) {
-            users[remote.profileId] = {
-              id: remote.profileId,
-              displayName: payload.displayName.trim() || remote.displayName,
+          remote = await loginServerAccount(email, payload.password);
+        } catch (err) {
+          try {
+            const cred = await verifyLocalPassword(email, payload.password);
+            remote = {
+              profileId: cred.profileId,
+              displayName: users[cred.profileId]?.displayName ?? displayName,
               email,
-              avatarHue: Math.floor(Math.random() * 360),
-              createdAt: nowIso(),
             };
-            writeUsers(users);
+          } catch {
+            throw err instanceof Error ? err : new Error("Couldn’t sign in");
           }
         }
-        try {
-          await syncServerAccount({
-            email,
-            password: payload.password,
-            profileId: cred.profileId,
-            displayName:
-              payload.displayName.trim() ||
-              users[cred.profileId]?.displayName ||
-              email.split("@")[0] ||
-              "Reader",
-            mode: "signin",
-          });
-        } catch {
-          /* server optional after local auth */
-        }
-        profile = users[cred.profileId] ?? findUserByEmail(email) ?? {
-          id: cred.profileId,
-          displayName: payload.displayName.trim() || email.split("@")[0] || "Reader",
+      }
+
+      await registerLocalPassword(email, payload.password, remote.profileId);
+      await restorePairFromServer(remote.profileId);
+      let profile =
+        users[remote.profileId] ??
+        findUserByEmail(email) ?? {
+          id: remote.profileId,
+          displayName: displayName || remote.displayName,
           email,
           avatarHue: Math.floor(Math.random() * 360),
           createdAt: nowIso(),
         };
-        if (payload.displayName.trim()) {
-          profile = { ...profile, displayName: payload.displayName.trim(), email };
-        } else {
-          profile = { ...profile, email };
-        }
-        users[profile.id] = profile;
-        writeUsers(users);
-      }
+      profile = {
+        ...profile,
+        id: remote.profileId,
+        email,
+        displayName: payload.displayName.trim() || profile.displayName || remote.displayName,
+      };
+      users[profile.id] = profile;
+      writeUsers(users);
 
       sessionStorage.setItem(SESSION_USER_KEY, profile.id);
       await issueAccessToken({
@@ -472,31 +479,54 @@ export function createLocalAdapter(): SyncAdapter {
     },
 
     async signOut() {
+      const userId = currentUserId();
+      if (userId) {
+        const pair = findPairForUser(userId);
+        if (pair) await pushPairToServer(pair);
+      }
+      closePairStream();
       sessionStorage.removeItem(SESSION_USER_KEY);
       clearAccessToken();
       listeners.forEach((l) => l(emptySnapshot()));
     },
 
-    async createPair() {
+    async createRoom(input?: CreateRoomInput) {
       const userId = requireUser();
-      const existing = findPairForUser(userId);
-      if (existing) {
-        emit();
-        return existing;
-      }
+      const maxMembers = Math.min(
+        ROOM_MAX_MEMBERS,
+        Math.max(ROOM_MIN_MEMBERS, Math.floor(input?.maxMembers ?? ROOM_MAX_MEMBERS)),
+      );
+      const name = (input?.name ?? "Reading room").trim() || "Reading room";
       const pair: ReadingPair = {
         id: generateId(),
         buddyCode: generateBuddyCode(),
         userAId: userId,
         userBId: null,
+        memberIds: [],
+        name,
+        maxMembers,
         createdAt: nowIso(),
       };
       const pairs = readPairs();
       pairs[pair.buddyCode] = pair;
       writePairs(pairs);
-      writePairData(pair.id, seedBook(pair.id, userId));
+      writePairData(pair.id, emptyPairData());
+      try {
+        localStorage.setItem(ACTIVE_ROOM_KEY, pair.id);
+      } catch {
+        /* ignore */
+      }
       emit();
-      return pair;
+      return roomFromPair(pair);
+    },
+
+    async createPair() {
+      return this.createRoom({ maxMembers: 2 });
+    },
+
+    async joinRoom(inviteCode) {
+      const { pair } = await this.joinPair(inviteCode);
+      return { room: pair };
     },
 
     async joinPair(buddyCode) {
@@ -514,12 +544,32 @@ export function createLocalAdapter(): SyncAdapter {
       }
       if (!pair) {
         throw new Error(
-          "No pair with that code. Ask your buddy to tap Share this book while PageMate is running, then open that link again.",
+          "No room with that code. Ask someone to share a book link while BookMate is running, then open that link again.",
         );
       }
-      if (pair.userAId === userId) throw new Error("That's your own code.");
-      if (pair.userBId && pair.userBId !== userId) throw new Error("This pair is already full.");
-      const next: ReadingPair = { ...pair, userBId: userId };
+      const ids = pairMemberIds(pair);
+      if (ids.includes(userId)) {
+        try {
+          localStorage.setItem(ACTIVE_ROOM_KEY, pair.id);
+        } catch {
+          /* ignore */
+        }
+        emit();
+        return { pair: roomFromPair(pair), buddy: assemble(userId).buddy };
+      }
+      const max = pair.maxMembers ?? 2;
+      if (ids.length >= max) {
+        throw new Error(`This room is full (max ${max}).`);
+      }
+      let next: ReadingPair;
+      if (!pair.userBId) {
+        next = { ...pair, userBId: userId };
+      } else {
+        next = {
+          ...pair,
+          memberIds: [...(pair.memberIds ?? []).filter((id) => id !== userId), userId],
+        };
+      }
       pairs[code] = next;
       writePairs(pairs);
       mutatePair(next.id, (data) => {
@@ -538,10 +588,10 @@ export function createLocalAdapter(): SyncAdapter {
           activities: [
             {
               id: generateId(),
-              pairId: next.id,
+              roomId: next.id,
               bookId: null,
               userId,
-              kind: "pair_joined",
+              kind: "room_joined",
               payload: {},
               createdAt: nowIso(),
             },
@@ -549,9 +599,18 @@ export function createLocalAdapter(): SyncAdapter {
           ],
         };
       });
+      try {
+        localStorage.setItem(ACTIVE_ROOM_KEY, next.id);
+      } catch {
+        /* ignore */
+      }
       emit();
       const users = readUsers();
-      return { pair: next, buddy: users[next.userAId] ?? null };
+      return { pair: roomFromPair(next), buddy: users[next.userAId] ?? null };
+    },
+
+    async leaveRoom() {
+      return this.leavePair();
     },
 
     async leavePair() {
@@ -563,11 +622,80 @@ export function createLocalAdapter(): SyncAdapter {
       if (pair.userAId === userId) {
         delete pairs[pair.buddyCode];
         localStorage.removeItem(dataKey(pair.id));
+      } else if (pair.userBId === userId) {
+        pairs[pair.buddyCode] = {
+          ...pair,
+          userBId: pair.memberIds?.[0] ?? null,
+          memberIds: (pair.memberIds ?? []).slice(1),
+        };
       } else {
-        pairs[pair.buddyCode] = { ...pair, userBId: null };
-        writePairs(pairs);
+        pairs[pair.buddyCode] = {
+          ...pair,
+          memberIds: (pair.memberIds ?? []).filter((id) => id !== userId),
+        };
       }
       writePairs(pairs);
+      try {
+        localStorage.removeItem(ACTIVE_ROOM_KEY);
+      } catch {
+        /* ignore */
+      }
+      emit();
+    },
+
+    async deleteRoom() {
+      const userId = requireUser();
+      const pair = findPairForUser(userId);
+      if (!pair) return;
+      if (pair.userAId !== userId) throw new Error("Only the room owner can delete the room.");
+      const pairs = readPairs();
+      delete pairs[pair.buddyCode];
+      writePairs(pairs);
+      localStorage.removeItem(dataKey(pair.id));
+      try {
+        localStorage.removeItem(ACTIVE_ROOM_KEY);
+      } catch {
+        /* ignore */
+      }
+      emit();
+    },
+
+    async kickMember(targetUserId: string) {
+      const userId = requireUser();
+      const pair = findPairForUser(userId);
+      if (!pair) throw new Error("Room required");
+      if (pair.userAId !== userId) throw new Error("Only the room owner can kick members.");
+      if (targetUserId === userId) throw new Error("You can’t kick yourself.");
+      const pairs = readPairs();
+      let next: ReadingPair = { ...pair };
+      if (pair.userBId === targetUserId) {
+        next = {
+          ...pair,
+          userBId: pair.memberIds?.[0] ?? null,
+          memberIds: (pair.memberIds ?? []).slice(1),
+        };
+      } else {
+        next = {
+          ...pair,
+          memberIds: (pair.memberIds ?? []).filter((id) => id !== targetUserId),
+        };
+      }
+      pairs[pair.buddyCode] = next;
+      writePairs(pairs);
+      emit();
+    },
+
+    async setActiveRoom(roomId: string) {
+      const userId = requireUser();
+      const pair = Object.values(readPairs()).find(
+        (p) => p.id === roomId && pairMemberIds(p).includes(userId),
+      );
+      if (!pair) throw new Error("You’re not in that room.");
+      try {
+        localStorage.setItem(ACTIVE_ROOM_KEY, roomId);
+      } catch {
+        /* ignore */
+      }
       emit();
     },
 
@@ -586,10 +714,10 @@ export function createLocalAdapter(): SyncAdapter {
     async addBook(input) {
       const userId = requireUser();
       const pair = findPairForUser(userId);
-      if (!pair) throw new Error("Pair required");
+      if (!pair) throw new Error("Room required");
       const book: Book = {
         id: generateId(),
-        pairId: pair.id,
+        roomId: pair.id,
         title: input.title.trim(),
         author: input.author.trim(),
         totalPages: Math.max(1, Math.floor(input.totalPages)),
@@ -599,7 +727,7 @@ export function createLocalAdapter(): SyncAdapter {
         createdAt: nowIso(),
         completedAt: null,
       };
-      const members = [pair.userAId, pair.userBId].filter(Boolean) as string[];
+      const members = pairMemberIds(pair);
       mutatePair(pair.id, (data) => ({
         ...data,
         books: [book, ...data.books],
@@ -616,7 +744,7 @@ export function createLocalAdapter(): SyncAdapter {
         activities: [
           {
             id: generateId(),
-            pairId: pair.id,
+            roomId: pair.id,
             bookId: book.id,
             userId,
             kind: "book_added" as const,
@@ -702,7 +830,7 @@ export function createLocalAdapter(): SyncAdapter {
         if (clamped !== previousPage) {
           activities = [
             activityFromPageUpdate({
-              pairId: pair.id,
+              roomId: pair.id,
               bookId,
               userId,
               page: clamped,
@@ -712,13 +840,11 @@ export function createLocalAdapter(): SyncAdapter {
             ...activities,
           ].slice(0, 200);
         }
-        const partner = progress.find((p) => p.bookId === bookId && p.userId !== userId);
-        const bothDone =
-          Boolean(book) &&
-          clamped >= (book?.totalPages ?? Infinity) &&
-          partner !== undefined &&
-          partner.currentPage >= (book?.totalPages ?? Infinity);
-        if (bothDone && book && book.status !== "completed") {
+        const membersDone = pairMemberIds(pair).every((id) => {
+          const row = progress.find((p) => p.bookId === bookId && p.userId === id);
+          return Boolean(book) && (row?.currentPage ?? 0) >= (book?.totalPages ?? Infinity);
+        });
+        if (membersDone && book && book.status !== "completed" && pairMemberIds(pair).length >= 2) {
           books = books.map((b) =>
             b.id === bookId
               ? { ...b, status: "completed" as BookStatus, completedAt: nowIso() }
@@ -727,7 +853,7 @@ export function createLocalAdapter(): SyncAdapter {
           activities = [
             {
               id: generateId(),
-              pairId: pair.id,
+              roomId: pair.id,
               bookId,
               userId,
               kind: "book_completed",
@@ -766,7 +892,7 @@ export function createLocalAdapter(): SyncAdapter {
         const book = data.books.find((b) => b.id === input.bookId);
         const activity: Activity = {
           id: generateId(),
-          pairId: pair.id,
+          roomId: pair.id,
           bookId: input.bookId,
           userId,
           kind: input.emoji && !input.note ? "reaction" : "note",

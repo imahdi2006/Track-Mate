@@ -1,4 +1,4 @@
-/* PageMate service worker
+/* BookMate service worker
  *
  * Cache strategy:
  *  - install: pre-cache app shell + offline fallback
@@ -8,9 +8,8 @@
  *  - message SKIP_WAITING: update modal orchestration
  */
 
-const CACHE_VERSION = "pagemate-v1";
+const CACHE_VERSION = "bookmate-v9";
 const PRECACHE = [
-  "/",
   "/offline",
   "/offline.html",
   "/manifest.json",
@@ -108,7 +107,7 @@ async function staleWhileRevalidate(request) {
 
 self.addEventListener("push", (event) => {
   let payload = {
-    title: "PageMate",
+    title: "BookMate",
     body: "Your buddy just turned a page.",
     url: "/",
   };
@@ -121,13 +120,13 @@ self.addEventListener("push", (event) => {
   const url = payload.url || (payload.bookId ? `/book/${payload.bookId}` : "/");
 
   event.waitUntil(
-    self.registration.showNotification(payload.title || "PageMate", {
+    self.registration.showNotification(payload.title || "BookMate", {
       body: payload.body,
       icon: "/icons/icon-192.png",
       badge: "/icons/badge-72.png",
       vibrate: [80, 40, 80, 40, 120],
       data: { url },
-      tag: payload.tag || "pagemate-activity",
+      tag: payload.tag || "bookmate-activity",
       renotify: true,
       actions: [
         { action: "open", title: "Open book" },

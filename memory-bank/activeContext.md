@@ -1,9 +1,9 @@
 # Active context
 
-Product name is **PageMate**. Dark-first PWA with a light theme toggle.
+Product name is **BookMate**. Dark-first PWA with a light theme toggle.
 
-**Current focus (2026-08-28):** book cover, edit/remove book, local push send.
+**Current focus:** Production path is **Vercel + Supabase Auth** with multi-member **rooms** (max 5). Local SQLite remains for zero-env demo only.
 
-- Covers: never use the logo as a book jacket. `BookCover` looks up Open Library or draws a title card. Placeholder `/icons/icon-192` is treated as missing.
-- Book detail: Edit, Leave book (Want pile), Remove from our shelf (both people, tombstone so it stays gone).
-- Push: `/api/push/send` works in local demo via pair-store subscriptions + test ping in Settings.
+**Recent:** Rooms schema `0002_rooms.sql`, supabase-adapter rooms API, session store `createRoom` / `kickMember` / `deleteRoom`, share modal fallback, empty shelf (no seed book), push fan-out to room members, `docs/VERCEL_DEPLOY.md`.
+
+**Next:** Create Supabase project, apply migrations, set Vercel env, smoke-test register / sync / share / install / push on HTTPS.

@@ -1,0 +1,15 @@
+[Unit]
+Description=BookMate
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/pagemate
+Environment=NODE_ENV=production
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/node node_modules/next/dist/bin/next start -p 8585
+Restart=on-failure
+RestartSec=4
+
+[Install]
+WantedBy=multi-user.target

@@ -1,40 +1,44 @@
-# PageMate
+# BookMate
 
-A dark-first, installable PWA for two people to track a shared book in real time.
+A dark-first, installable PWA for a small reading room (up to **5** people) to track shared books in real time.
 
-Two overlapping pages. One spine. Share **a book**, not the account. When your buddy turns a page, you see it.
+Share **a book**, not the account. When someone turns a page, the room sees it.
 
-## Quick start
+## Quick start (local demo)
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the URL Next prints (usually [http://localhost:3000](http://localhost:3000); if that port is busy it may be `:3002`). Use **that same origin** in every window.
+No env vars required for local demo (SQLite + custom auth). Open the URL Next prints and use **that same origin** in every window.
 
 1. Sign in with email + password.
-2. Create a pair.
-3. On Home or the book page, tap **Share this book**.
-4. Open the link in another tab or Incognito, sign in as someone else.
-5. Turn pages — both bars should move within a couple of seconds.
+2. Create a room (choose max members 2–5).
+3. Add a book (shelf starts empty).
+4. Tap **Share this book**; open the link as another user.
+5. Turn pages — progress syncs live.
 
-No env vars are required for the local demo. Forgot-password email needs Resend. Two real phones need Supabase (or the same Next host).
+## Production: Vercel + Supabase
 
-If Next moved to another port, don’t mix `:3000` and `:3002`. Run only one `npm run dev`.
+See [`docs/VERCEL_DEPLOY.md`](./docs/VERCEL_DEPLOY.md).
+
+1. Create a Supabase project; run `0001_init.sql` then `0002_rooms.sql`.
+2. Set `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_APP_URL`, VAPID keys on Vercel.
+3. Deploy. Auth is **Supabase Auth**; rooms/books live in Postgres + Realtime.
+4. HTTPS enables install + Web Push.
 
 ## What you can do
 
-- Dual progress, +1 / +5 / +10, lead line, notes and reactions
-- Share a book via `/join/{code}?book={id}`
-- Edit a book, leave it (Want pile), or remove it from the shared shelf
-- Dark / light (sun/moon). Settings has the switch under Appearance
-- Persian / Arabic titles (Vazirmatn, `dir="auto"`)
-- Push: Settings → enable, then **Send test ping**. iPhone needs Add to Home Screen first
+- Rooms up to 5; owner can kick members and delete the room
+- Book invite (primary) or room invite (warns: whole shelf)
+- Progress, notes, reactions; multi-device sync on the same account
+- Dark / light theme; Persian / Arabic titles (`dir="auto"`)
+- Push on HTTPS after install (iPhone: Add to Home Screen first)
 
 ## Stack
 
-React 19 · Next.js 15 (App Router) · TypeScript · Tailwind v4 · Framer Motion · Lucide · Zustand · optional Supabase · Web Push / VAPID · `public/sw.js`
+React 19 · Next.js 15 · TypeScript · Tailwind v4 · Framer Motion · Lucide · Zustand · Supabase (Auth + Postgres + Realtime) · Web Push · `public/sw.js`
 
 ## Scripts
 
@@ -44,28 +48,21 @@ React 19 · Next.js 15 (App Router) · TypeScript · Tailwind v4 · Framer Motio
 | `npm run build` | Production build |
 | `npm run icons` | Rasterize PWA PNG icons |
 | `npm run vapid` | Print a fresh VAPID keypair |
-| `npm run docs:pdf` | Render the architecture manual to PDF |
+| `npm run docs:pdf` | Architecture manual PDF |
 
-## Optional env (`.env.local`)
+## Env (`.env.local`)
 
 Copy `.env.example`. Never commit `.env.local`.
 
 | Variable | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_APP_URL` | Canonical origin (match the port you actually use) |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web Push. Restart Next after changing `NEXT_PUBLIC_*` |
-| `RESEND_API_KEY` / `RESEND_FROM` | Forgot-password mail |
-| `NEXT_PUBLIC_SUPABASE_URL` + anon key | Cloud sync between phones |
-
-Local pairs are mirrored to gitignored `.data/pairs.json` so Incognito on **this** Next server can join and stay live.
-
-## Cloud (optional)
-
-1. Create a Supabase project and run `supabase/migrations/0001_init.sql`.
-2. Fill the Supabase keys in `.env.local`.
-3. `npm run vapid` and paste the keys.
-4. Deploy on HTTPS (required for the service worker and push).
+| `NEXT_PUBLIC_APP_URL` | Canonical origin |
+| `NEXT_PUBLIC_SUPABASE_URL` / `ANON_KEY` | Cloud Auth + DB (Vercel) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server push fan-out |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web Push |
+| `RESEND_API_KEY` | Local-demo forgot-password only |
 
 ## Docs
 
-Implementation manual: [`docs/ARCHITECTURE_AND_IMPLEMENTATION.md`](./docs/ARCHITECTURE_AND_IMPLEMENTATION.md).
+- Vercel deploy: [`docs/VERCEL_DEPLOY.md`](./docs/VERCEL_DEPLOY.md)
+- Architecture: [`docs/ARCHITECTURE_AND_IMPLEMENTATION.md`](./docs/ARCHITECTURE_AND_IMPLEMENTATION.md)

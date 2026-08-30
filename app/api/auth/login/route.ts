@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
+import { localApiUnavailable } from "@/lib/auth/local-api-guard";
 import { rateLimit } from "@/lib/auth/rate-limit";
-import { verifyUser } from "@/lib/auth/server-store";
+import { findUser, verifyUser } from "@/lib/auth/server-store";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const blocked = localApiUnavailable();
+  if (blocked) return blocked;
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  if (!rateLimit(`login:${ip}`, 20)) {
+  if (!rateLimit(`login:${ip}`, 80)) {
     return NextResponse.json({ message: "Too many attempts. Try again later." }, { status: 429 });
   }
 
@@ -25,7 +28,15 @@ export async function POST(request: Request) {
 
   const user = await verifyUser(email, password);
   if (!user) {
-    return NextResponse.json({ message: "Wrong email or password." }, { status: 401 });
+    const exists = await findUser(email);
+    return NextResponse.json(
+      {
+        message: exists
+          ? "Wrong password."
+          : "No account for that email. Create one first.",
+      },
+      { status: 401 },
+    );
   }
 
   return NextResponse.json({

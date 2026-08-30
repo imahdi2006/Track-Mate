@@ -4,10 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Copy, Link2, Users } from "lucide-react";
-import { PageMateLogo } from "@/components/branding/PageMateLogo";
+import { BookMateLogo } from "@/components/branding/BookMateLogo";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
+import { ROOM_MAX_MEMBERS, ROOM_MIN_MEMBERS } from "@/lib/config";
 import {
   clearPendingJoinCode,
   parseBuddyCode,
@@ -24,27 +25,29 @@ function afterJoin(router: ReturnType<typeof useRouter>) {
 
 export function PairingScreen() {
   const router = useRouter();
-  const createPair = useSessionStore((s) => s.createPair);
-  const joinPair = useSessionStore((s) => s.joinPair);
-  const pair = useSessionStore((s) => s.pair);
+  const createRoom = useSessionStore((s) => s.createRoom);
+  const joinRoom = useSessionStore((s) => s.joinRoom);
+  const room = useSessionStore((s) => s.room);
   const [code, setCode] = useState("");
+  const [roomName, setRoomName] = useState("Reading room");
+  const [maxMembers, setMaxMembers] = useState(ROOM_MAX_MEMBERS);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<"choose" | "create" | "join">("choose");
   const autoJoin = useRef(false);
 
   useEffect(() => {
     const pending = readPendingJoinCode();
-    if (!pending || pair || autoJoin.current) return;
+    if (!pending || room || autoJoin.current) return;
     autoJoin.current = true;
     setCode(pending);
     setMode("join");
     setBusy(true);
-    void joinPair(pending)
+    void joinRoom(pending)
       .then(() => {
         clearPendingJoinCode();
         useToastStore.getState().push({
-          title: "You’re paired",
-          body: "Open a book from Home and share it — that’s the invite.",
+          title: "You’re in the room",
+          body: "Open a book from Home — share a book link to invite others.",
           tone: "success",
         });
         afterJoin(router);
@@ -58,16 +61,16 @@ export function PairingScreen() {
         });
       })
       .finally(() => setBusy(false));
-  }, [joinPair, pair, router]);
+  }, [joinRoom, room, router]);
 
   async function onCreate() {
     setBusy(true);
     try {
-      await createPair();
+      await createRoom({ name: roomName, maxMembers });
       setMode("create");
     } catch (err) {
       useToastStore.getState().push({
-        title: "Couldn’t create pair",
+        title: "Couldn’t create room",
         body: err instanceof Error ? err.message : "Try again",
         tone: "warn",
       });
@@ -82,7 +85,7 @@ export function PairingScreen() {
     if (clean.length < 6) return;
     setBusy(true);
     try {
-      await joinPair(clean);
+      await joinRoom(clean);
       clearPendingJoinCode();
       afterJoin(router);
     } catch (err) {
@@ -97,9 +100,17 @@ export function PairingScreen() {
   }
 
   async function copyCode() {
-    if (!pair?.buddyCode) return;
-    await navigator.clipboard.writeText(pair.buddyCode);
-    useToastStore.getState().push({ title: "Buddy code copied", tone: "success" });
+    if (!room?.inviteCode) return;
+    try {
+      await navigator.clipboard.writeText(room.inviteCode);
+      useToastStore.getState().push({ title: "Invite code copied", tone: "success" });
+    } catch {
+      useToastStore.getState().push({
+        title: "Copy manually",
+        body: room.inviteCode,
+        tone: "warn",
+      });
+    }
   }
 
   return (
@@ -110,20 +121,20 @@ export function PairingScreen() {
         className="glass rounded-3xl p-6"
       >
         <div className="flex items-start justify-between gap-3">
-          <PageMateLogo size={44} withWordmark />
+          <BookMateLogo size={44} withWordmark />
           <ThemeSwitch />
         </div>
-        <h1 className="font-display mt-5 text-2xl text-cream">Find your reading buddy</h1>
+        <h1 className="font-display mt-5 text-2xl text-cream">Start a reading room</h1>
         <p className="mt-2 text-sm text-muted">
-          Create a pair, then share a book from Home or Library. They join that
-          book — not your whole account.
+          Create a room (up to {ROOM_MAX_MEMBERS} people), then share a book from Home.
+          Book links invite people into that room — not your password.
         </p>
 
-        {mode === "choose" && !pair ? (
+        {mode === "choose" && !room ? (
           <div className="mt-6 grid gap-3">
-            <Button size="lg" onClick={onCreate} disabled={busy}>
+            <Button size="lg" onClick={() => setMode("create")} disabled={busy}>
               <Users size={18} />
-              Create a pair
+              Create a room
             </Button>
             <Button size="lg" variant="secondary" onClick={() => setMode("join")}>
               <Link2 size={18} />
@@ -132,22 +143,56 @@ export function PairingScreen() {
           </div>
         ) : null}
 
-        {(mode === "create" || pair) && pair ? (
+        {mode === "create" && !room ? (
+          <div className="mt-6 space-y-3">
+            <Input
+              dir="auto"
+              value={roomName}
+              onChange={(e) => setRoomName(e.target.value)}
+              placeholder="Room name"
+            />
+            <label className="block text-xs text-muted">
+              Max members ({ROOM_MIN_MEMBERS}–{ROOM_MAX_MEMBERS})
+              <select
+                className="mt-1 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-cream"
+                value={maxMembers}
+                onChange={(e) => setMaxMembers(Number(e.target.value))}
+              >
+                {Array.from(
+                  { length: ROOM_MAX_MEMBERS - ROOM_MIN_MEMBERS + 1 },
+                  (_, i) => ROOM_MIN_MEMBERS + i,
+                ).map((n) => (
+                  <option key={n} value={n}>
+                    {n} people
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button size="lg" className="w-full" onClick={() => void onCreate()} disabled={busy}>
+              Create room
+            </Button>
+            <Button type="button" variant="ghost" className="w-full" onClick={() => setMode("choose")}>
+              Back
+            </Button>
+          </div>
+        ) : null}
+
+        {(mode === "create" || room) && room ? (
           <div className="mt-6 space-y-4">
             <div>
-              <p className="text-xs uppercase tracking-wider text-muted">Your buddy code</p>
+              <p className="text-xs uppercase tracking-wider text-muted">Room invite code</p>
               <div className="mt-2 flex items-center justify-between rounded-2xl border border-brand/30 bg-brand/10 px-4 py-3">
                 <span className="font-display text-3xl tracking-[0.28em] text-cream">
-                  {pair.buddyCode}
+                  {room.inviteCode}
                 </span>
-                <Button size="icon" variant="ghost" onClick={copyCode} aria-label="Copy buddy code">
+                <Button size="icon" variant="ghost" onClick={() => void copyCode()} aria-label="Copy invite code">
                   <Copy size={18} />
                 </Button>
               </div>
             </div>
             <p className="text-sm text-muted">
-              Next: open Home or Library and tap <strong>Share this book</strong>.
-              That link is what your buddy opens.
+              Prefer sharing a <strong>book</strong> from Home — that opens the right title.
+              A room code shares the whole shelf.
             </p>
             <Button className="w-full" variant="secondary" onClick={() => router.replace("/")}>
               Open dashboard
@@ -155,7 +200,7 @@ export function PairingScreen() {
           </div>
         ) : null}
 
-        {mode === "join" && !pair ? (
+        {mode === "join" && !room ? (
           <form onSubmit={onJoin} className="mt-6 flex flex-col gap-3">
             <Input
               value={code}
@@ -166,7 +211,7 @@ export function PairingScreen() {
               autoCapitalize="characters"
             />
             <Button type="submit" size="lg" disabled={busy || parseBuddyCode(code).length < 6}>
-              Join this book
+              Join room
             </Button>
             <Button type="button" variant="ghost" onClick={() => setMode("choose")}>
               Back

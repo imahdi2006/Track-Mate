@@ -14,16 +14,47 @@ export interface RemotePairDoc {
   removedBookIds?: string[];
 }
 
-export async function publishPairDoc(code: string, doc: RemotePairDoc): Promise<void> {
+/** Push local state; returns the merged doc the server saved. */
+export async function publishPairDoc(code: string, doc: RemotePairDoc): Promise<RemotePairDoc | null> {
   try {
-    await fetch(`/api/pairs/${encodeURIComponent(code)}`, {
+    const res = await fetch(`/api/pairs/${encodeURIComponent(code)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify(doc),
     });
+    if (!res.ok) return null;
+    return (await res.json()) as RemotePairDoc;
   } catch {
-    /* local demo still works on this browser */
+    return null;
+  }
+}
+
+export function subscribePairStream(
+  code: string,
+  onDoc: (doc: RemotePairDoc) => void,
+): () => void {
+  if (typeof EventSource === "undefined") return () => undefined;
+  const source = new EventSource(`/api/pairs/${encodeURIComponent(code)}/stream`);
+  source.onmessage = (event) => {
+    try {
+      onDoc(JSON.parse(event.data) as RemotePairDoc);
+    } catch {
+      /* ignore malformed events */
+    }
+  };
+  return () => source.close();
+}
+
+export async function fetchPairDocForUser(profileId: string): Promise<RemotePairDoc | null> {
+  try {
+    const res = await fetch(`/api/pairs/by-user/${encodeURIComponent(profileId)}`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as RemotePairDoc;
+  } catch {
+    return null;
   }
 }
 

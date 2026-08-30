@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
-import { PageMateLogo } from "@/components/branding/PageMateLogo";
+import { BookMateLogo } from "@/components/branding/BookMateLogo";
 import { ActiveBookCard } from "@/components/dashboard/ActiveBookCard";
 import { ActivityFeed } from "@/components/activity/ActivityFeed";
 import { Avatar } from "@/components/ui/Avatar";
@@ -11,11 +11,17 @@ import { useSessionStore } from "@/lib/store/session-store";
 
 export function DashboardScreen() {
   const profile = useSessionStore((s) => s.profile)!;
-  const buddy = useSessionStore((s) => s.buddy);
-  const pair = useSessionStore((s) => s.pair)!;
+  const room = useSessionStore((s) => s.room)!;
+  const members = useSessionStore((s) => s.members);
   const books = useSessionStore((s) => s.books);
   const progress = useSessionStore((s) => s.progress);
   const activities = useSessionStore((s) => s.activities);
+
+  const others = useMemo(
+    () => members.filter((m) => m.userId !== profile.id && m.profile),
+    [members, profile.id],
+  );
+  const buddy = others[0]?.profile ?? null;
 
   const book = useMemo(
     () => books.find((b) => b.status === "currently_reading") ?? books[0],
@@ -33,27 +39,41 @@ export function DashboardScreen() {
   return (
     <div className="space-y-5">
       <header className="flex items-center justify-between">
-        <PageMateLogo size={34} withWordmark />
+        <BookMateLogo size={34} withWordmark />
         <div className="flex items-center gap-3">
           <ThemeSwitch />
           <div className="flex items-center -space-x-2">
             <Avatar name={profile.displayName} hue={profile.avatarHue} />
-            {buddy ? <Avatar name={buddy.displayName} hue={buddy.avatarHue} /> : null}
+            {others.slice(0, 3).map((m) =>
+              m.profile ? (
+                <Avatar
+                  key={m.userId}
+                  name={m.profile.displayName}
+                  hue={m.profile.avatarHue}
+                />
+              ) : null,
+            )}
           </div>
         </div>
       </header>
 
       <div className="space-y-1 rounded-2xl bg-white/4 px-3 py-2 text-xs text-muted">
-        <div className="flex items-center justify-between">
-          <span>
-            Pair <span className="tracking-widest text-cream">{pair.buddyCode}</span>
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate" dir="auto">
+            {room.name}{" "}
+            <span className="tracking-widest text-cream">{room.inviteCode}</span>
           </span>
-          <span>{buddy ? `live with ${buddy.displayName}` : "not connected"}</span>
+          <span className="shrink-0">
+            {members.length}/{room.maxMembers}
+            {others.length
+              ? ` · ${others.map((m) => m.profile!.displayName).join(", ")}`
+              : " · waiting"}
+          </span>
         </div>
-        {buddy ? (
-          <p className="text-brand-glow">Connected — both bars update within a couple of seconds.</p>
+        {others.length ? (
+          <p className="text-brand-glow">Live — page turns sync across devices in this room.</p>
         ) : (
-          <p>Share this book. After they open the link, this line turns into their name.</p>
+          <p>Share a book from below. After they open the link, their name shows here.</p>
         )}
       </div>
 
@@ -64,16 +84,19 @@ export function DashboardScreen() {
           buddy={buddy}
           myPage={myPage}
           theirPage={theirPage}
+          otherCount={Math.max(0, others.length - 1)}
         />
       ) : (
         <div className="glass rounded-3xl p-6 text-center">
           <p className="font-display text-xl">Your shelf is empty</p>
-          <p className="mt-1 text-sm text-muted">Add a book to start tracking pages together.</p>
+          <p className="mt-1 text-sm text-muted">
+            Add a book in Library — nothing is seeded for you by default.
+          </p>
           <Link
             href="/library"
             className="mt-4 inline-flex h-11 items-center rounded-2xl bg-brand px-4 text-sm font-medium"
           >
-            Open library
+            Add a book
           </Link>
         </div>
       )}

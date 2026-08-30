@@ -1,4 +1,4 @@
--- PageMate schema
+-- BookMate schema
 -- Apply in the Supabase SQL editor or via `supabase db push`.
 -- Auth identities live in auth.users. Public "users" are `public.profiles`.
 

@@ -3,7 +3,7 @@
  *
  *   npm run docs:pdf
  *
- * Output: docs/pagemate-architecture.pdf
+ * Output: docs/BookMate-architecture.pdf
  */
 import { readFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -13,7 +13,7 @@ import { marked } from "marked";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const SRC = join(ROOT, "docs", "ARCHITECTURE_AND_IMPLEMENTATION.md");
-const OUT = join(ROOT, "docs", "pagemate-architecture.pdf");
+const OUT = join(ROOT, "docs", "BookMate-architecture.pdf");
 
 function slugify(text) {
   return String(text)
@@ -62,7 +62,7 @@ async function main() {
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>PageMate — Architecture & Implementation</title>
+  <title>BookMate — Architecture & Implementation</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css" />
   <style>
     :root {
@@ -160,9 +160,9 @@ async function main() {
 </head>
 <body>
   <section class="cover">
-    <div class="eyebrow">PageMate · Engineering Manual</div>
+    <div class="eyebrow">BookMate · Engineering Manual</div>
     <h1>Architecture &amp; Implementation</h1>
-    <p>Deep-dive companion to the PageMate progressive web app: data flow, Postgres, optimistic realtime, Web Push / VAPID, iOS constraints, service worker lifecycle, and PWA install/update UX.</p>
+    <p>Deep-dive companion to the BookMate progressive web app: data flow, Postgres, optimistic realtime, Web Push / VAPID, iOS constraints, service worker lifecycle, and PWA install/update UX.</p>
     <p>
       <span class="swatch" style="background:#0F172A"></span> Navy
       <span class="swatch" style="background:#6366F1"></span> Indigo
@@ -235,7 +235,7 @@ async function main() {
     format: "A4",
     printBackground: true,
     displayHeaderFooter: true,
-    headerTemplate: `<div style="font-size:8px;color:#64748B;width:100%;padding:0 16mm;font-family:system-ui;">PageMate Architecture</div>`,
+    headerTemplate: `<div style="font-size:8px;color:#64748B;width:100%;padding:0 16mm;font-family:system-ui;">BookMate Architecture</div>`,
     footerTemplate: `<div style="font-size:8px;color:#64748B;width:100%;padding:0 16mm;font-family:system-ui;display:flex;justify-content:space-between;"><span>Confidential engineering notes</span><span><span class="pageNumber"></span> / <span class="totalPages"></span></span></div>`,
     margin: { top: "18mm", bottom: "18mm", left: "14mm", right: "14mm" },
   });
