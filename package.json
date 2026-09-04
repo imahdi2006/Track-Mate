@@ -4,7 +4,7 @@
   "private": true,
   "description": "Trackmate — a PWA for small groups to track shared books, courses, movies, and series in real time.",
   "engines": {
-    "node": "22.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev",

@@ -62,11 +62,11 @@ So: **push the code, do not replace the database.**
 
 Generate VAPID locally: `npm run vapid`. Keep the **same** VAPID keys if devices are already subscribed.
 
-3. **Node.js version (this is a dashboard setting, not only git):**
-   - **Settings → Environment Variables:** if `NODE_VERSION` exists (even blank), **delete it**. An empty value is why logs show `changed from "24.x" to ""`.
-   - **Settings → Build and Deployment → Node.js Version:** set **22.x** (not 24.x).
+3. **Node.js version (dashboard + repo must agree):**
+   - **Settings → Environment Variables:** if `NODE_VERSION` exists (**even blank**), **delete it**. A blank value is why logs show `changed from "24.x" to ""` and the build dies in ~2s.
+   - **Settings → Build and Deployment → Node.js Version:** set **24.x**, then click **Save** on that card (changing the dropdown alone does nothing).
+   - `package.json` `engines.node` is `24.x` (Vercel’s current default). Do not put `NODE_VERSION` in `vercel.json`.
    - Redeploy with **Use existing Build Cache** unchecked.
-   - `package.json` `engines.node` is `22.x`. Do not add `.nvmrc` with a bare `22` — Vercel can treat that as an empty version.
 4. Deploy. Framework preset: Next.js.
 5. Later updates: commit, then `git push origin main`. Vercel builds that commit. Users stay in Supabase.
 
@@ -87,7 +87,7 @@ Generate VAPID locally: `npm run vapid`. Keep the **same** VAPID keys if devices
 - [ ] Settings → Install (HTTPS); enable push; Send test ping (should arrive on this device)
 - [ ] Settings → Check for updates; Report a bug opens a short form (email to the project inbox)
 - [ ] Settings shows GitHub / open source (Buy me a coffee is hidden)
-- [ ] Vercel Node.js version is **22.x** (a `24.x` project setting currently fails the build)
+- [ ] Vercel Node.js Version is **24.x** and there is **no** `NODE_VERSION` env var (blank env = build dies with `to ""`)
 
 ## Notes
 
