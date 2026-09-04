@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { BookOpen, Plus } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AddBookModal } from "@/components/library/AddBookModal";
 import { BookCard } from "@/components/library/BookCard";
@@ -11,7 +11,7 @@ import type { BookStatus } from "@/lib/types";
 import { useSessionStore } from "@/lib/store/session-store";
 
 const TABS: { id: BookStatus; label: string }[] = [
-  { id: "currently_reading", label: "Reading" },
+  { id: "currently_reading", label: "Now" },
   { id: "want_to_read", label: "Want" },
   { id: "completed", label: "Done" },
 ];
@@ -32,10 +32,13 @@ export function LibraryScreen() {
   return (
     <div className="space-y-4">
       <header className="flex items-center justify-between gap-3">
-        <h1 className="font-display text-2xl">Library</h1>
+        <h1 className="flex items-center gap-2 font-display text-2xl">
+          <BookOpen size={22} className="text-brand-glow" />
+          Library
+        </h1>
         <div className="flex items-center gap-2">
           <ThemeSwitch />
-          <Button size="icon" onClick={() => setOpen(true)} aria-label="Add book">
+          <Button size="icon" onClick={() => setOpen(true)} aria-label="Add to library">
             <Plus size={18} />
           </Button>
         </div>

@@ -12,6 +12,7 @@ export interface RemotePairDoc {
   profiles: Profile[];
   pushSubscriptions?: PushSubscriptionRecord[];
   removedBookIds?: string[];
+  shelfScopeByUser?: Record<string, "all" | string[]>;
 }
 
 /** Push local state; returns the merged doc the server saved. */

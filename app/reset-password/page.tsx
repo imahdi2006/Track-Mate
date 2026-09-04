@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { BookMateLogo } from "@/components/branding/BookMateLogo";
+import { LoadingScreen } from "@/components/ui/Loader";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
@@ -102,9 +103,7 @@ export default function ResetPasswordPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-dvh items-center justify-center text-sm text-muted">
-          Opening reset…
-        </div>
+        <LoadingScreen label="Opening reset…" />
       }
     >
       <ResetPasswordForm />

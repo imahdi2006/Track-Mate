@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -8,12 +9,14 @@ export function Modal({
   open,
   onClose,
   title,
+  icon,
   children,
   className,
 }: {
   open: boolean;
   onClose: () => void;
   title?: string;
+  icon?: ReactNode;
   children: React.ReactNode;
   className?: string;
 }) {
@@ -46,7 +49,10 @@ export function Modal({
           >
             <div className="mb-4 flex items-center justify-between gap-3">
               {title ? (
-                <h2 className="font-display text-xl text-cream">{title}</h2>
+                <h2 className="flex min-w-0 items-center gap-2 font-display text-xl text-cream">
+                  {icon ? <span className="shrink-0 text-brand-glow">{icon}</span> : null}
+                  <span className="truncate">{title}</span>
+                </h2>
               ) : (
                 <span />
               )}

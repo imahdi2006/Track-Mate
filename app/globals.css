@@ -115,7 +115,7 @@ html.light .hover\:bg-white\/10:hover {
 }
 
 .safe-bottom {
-  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(4.25rem + env(safe-area-inset-bottom, 0px));
 }
 
 .pb-safe {

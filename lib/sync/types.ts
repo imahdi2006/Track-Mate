@@ -12,6 +12,7 @@ import type {
   PushSubscriptionRecord,
   ReactionEmoji,
   ReadingRoom,
+  TitleKind,
 } from "@/lib/types";
 
 export type ProgressListener = (snapshot: Partial<BookMateSnapshot>) => void;
@@ -23,15 +24,16 @@ export interface SyncAdapter {
   requestPasswordReset(email: string): Promise<{ emailed: boolean; message: string; resetUrl?: string }>;
   signOut(): Promise<void>;
   createRoom(input?: CreateRoomInput): Promise<ReadingRoom>;
-  joinRoom(inviteCode: string): Promise<{ room: ReadingRoom }>;
+  joinRoom(inviteCode: string, bookId?: string | null): Promise<{ room: ReadingRoom }>;
   leaveRoom(): Promise<void>;
   deleteRoom(): Promise<void>;
   kickMember(userId: string): Promise<void>;
+  removeFromTitle(bookId: string, userId: string): Promise<void>;
   setActiveRoom(roomId: string): Promise<void>;
   /** @deprecated Use createRoom */
   createPair(): Promise<ReadingRoom>;
   /** @deprecated Use joinRoom */
-  joinPair(buddyCode: string): Promise<{ pair: ReadingRoom; buddy: Profile | null }>;
+  joinPair(buddyCode: string, bookId?: string | null): Promise<{ pair: ReadingRoom; buddy: Profile | null }>;
   /** @deprecated Use leaveRoom */
   leavePair(): Promise<void>;
   updateProfile(patch: Partial<Pick<Profile, "displayName">>): Promise<Profile>;
@@ -41,6 +43,7 @@ export interface SyncAdapter {
     totalPages: number;
     coverUrl?: string | null;
     status?: BookStatus;
+    kind?: TitleKind;
   }): Promise<Book>;
   updateBookStatus(bookId: string, status: BookStatus): Promise<void>;
   updateBook(
@@ -50,8 +53,10 @@ export interface SyncAdapter {
       author?: string;
       totalPages?: number;
       coverUrl?: string | null;
+      kind?: TitleKind;
     },
   ): Promise<void>;
+  startOAuth(provider: "google"): Promise<void>;
   removeBook(bookId: string): Promise<void>;
   updatePage(bookId: string, page: number, previousPage: number): Promise<void>;
   addNote(input: {
@@ -60,6 +65,7 @@ export interface SyncAdapter {
     emoji?: ReactionEmoji | null;
     note?: string | null;
   }): Promise<MicroNote>;
+  markNotesRead(bookId: string): Promise<void>;
   savePushSubscription(
     sub: Omit<PushSubscriptionRecord, "id" | "createdAt" | "userId">,
   ): Promise<void>;

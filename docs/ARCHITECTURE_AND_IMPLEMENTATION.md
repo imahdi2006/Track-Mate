@@ -13,7 +13,7 @@
 | **Production** | Supabase Auth | `reading_rooms` + `room_members` (max 5) + shelf tables with `room_id` | Vercel HTTPS |
 | **Local demo** | `/api/auth/*` + SQLite | Pair-doc mirror in `pair_docs` (room-shaped in the client) | `npm run dev` |
 
-Apply SQL: `supabase/migrations/0001_init.sql` then `0002_rooms.sql`.
+Apply SQL: `supabase/migrations/0001_init.sql`, `0002_rooms.sql`, then `0003_book_access.sql`, then `0004_title_kinds.sql`, then `0005_note_reads.sql` (read receipts), then `0006_series.sql` (TV series).
 Deploy steps: [`docs/VERCEL_DEPLOY.md`](./VERCEL_DEPLOY.md).
 
 Rooms API on the store: `createRoom`, `joinRoom`, `leaveRoom`, `deleteRoom`, `kickMember`, `setActiveRoom`.
@@ -62,7 +62,7 @@ client-owned session store, and a **pluggable sync adapter**.
 │                                                                          │
 │  public/sw.js  ◄── registerServiceWorker()  ◄── AppProviders             │
 │       │                                                                  │
-│       ├─ Cache (BookMate-v3)                                             │
+│       ├─ Cache (bookmate-v10)                                            │
 │       ├─ push / notificationclick                                        │
 │       └─ SKIP_WAITING ◄── usePWAUpdate                                   │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -139,10 +139,16 @@ stateDiagram-v2
   Shell --> Pairing: leavePair
 ```
 
-`components/auth/AuthGate.tsx` is the only gate. Authenticated routes are not
-protected by Next.js middleware; this is a client-owned PWA. Deep links such as
-`/book/[id]` still render `AppShell`, which re-runs the gate. Unauthenticated
-users never see the bottom nav.
+`components/auth/AuthGate.tsx` is the only **UI** gate. `middleware.ts` only
+refreshes Supabase cookies (needed for Google OAuth PKCE); it does not
+redirect anonymous users. Deep links such as `/book/[id]` still render
+`AppShell`, which re-runs the gate. Unauthenticated users never see the
+bottom nav.
+
+Cloud sign-in is **email + password** or **Google** (`signInWithOAuth` →
+`/auth/callback`). First Google visit creates `auth.users` + `profiles`;
+returning visits reuse the same id. Enable automatic linking in Supabase so
+an existing password account with that Gmail stays one person.
 
 ### 1.4 Pairing: Buddy Code + per-book share
 
@@ -151,10 +157,12 @@ users never see the bottom nav.
 `32^6 ≈ 1.07e9`. Collisions are rejected by the unique index
 `reading_pairs_buddy_code_uidx`.
 
-**Share a book, not the account.** `lib/invite.ts` builds
-`/join/{buddyCode}?book={bookId}`. Home, Library, and book detail expose
-`ShareBookButton`. Settings only shows the code; it does not send an
-account-wide invite.
+**Share a book, not the library.** `lib/invite.ts` builds
+`/join/{code}?book={bookId}`. `joinRoom(code, bookId)` grants **that title
+only** (`room_members.shelf_scope = books` + `book_access`). A room invite
+without `?book=` still shares the **whole shelf** (`shelf_scope = all`) —
+Settings warns about that. Home, Library, and book detail expose
+`ShareBookButton`. Never share account passwords.
 
 **Local demo (two tabs, one origin):**
 
@@ -180,7 +188,11 @@ still has `user_b_id is null` so join-by-code works without a prior membership.
 
 ## 2. PostgreSQL schema
 
-Canonical SQL: `supabase/migrations/0001_init.sql`.
+Canonical SQL: `supabase/migrations/0001_init.sql`, then rooms in `0002_rooms.sql`, then book-scoped invites + cover uploads in `0003_book_access.sql`, then title kinds (`book` / `course` / `movie`) in `0004_title_kinds.sql`, then note read receipts in `0005_note_reads.sql`, then TV series (`series`, episodes) in `0006_series.sql`.
+
+`display_name` prefers Google `given_name` / `full_name`. The UI runs names through `personName()` so email local-parts like `mahdi.mahdi1385631` never show as a label.
+
+Opening a title marks others’ notes read (`note_reads`). The sender sees WhatsApp-style ticks and can tap them for names. Covers are cropped to 2:3 in `CoverCropModal` before upload. Removing someone from a title updates Zustand immediately (`removeFromTitle` is optimistic).
 
 Auth identities are **`auth.users`**. The public “users” table the product
 talks about is **`public.profiles`**, 1:1 with `auth.users(id)` via FK
@@ -578,7 +590,7 @@ in `next.config.ts`).
 ```js
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open("BookMate-v3").then((cache) => cache.addAll(PRECACHE))
+    caches.open("bookmate-v10").then((cache) => cache.addAll(PRECACHE))
   );
 });
 ```
@@ -587,15 +599,15 @@ self.addEventListener("install", (event) => {
 icons. `/` is **not** precached — pinning the homepage kept a stale auth bundle
 after VPS deploys. `skipWaiting()` is **not** called here. A new worker that auto-activates
 would yank the rug out from an open reading session. Activation waits for
-`SKIP_WAITING` from the Update toast, from `registerServiceWorker()` when a
-waiting worker exists, **or** for all clients to close.
+`SKIP_WAITING` from the Update toast, from `registerServiceWorker()` **only on
+first install** (no existing controller), **or** for all clients to close.
 
 `cache.addAll` is wrapped in `.catch(() => undefined)` so a single 404 during
 install (e.g. icons not generated yet) does not fail the whole worker.
 
 ### 5.2 `activate`
 
-Deletes every cache whose name is not `BookMate-v3`. Bump `CACHE_VERSION` when
+Deletes every cache whose name is not `bookmate-v10`. Bump `CACHE_VERSION` when
 you change precache contents or fetch strategy. Then `self.clients.claim()` so
 the new worker controls pages that were loaded under the old one — but only
 after it became the active worker (which is after skipWaiting or reload).
@@ -741,7 +753,7 @@ the page. If we reloaded first, we might request HTML under the old worker.
 waiting; the next visit (or next `updatefound`) can offer again.
 
 **UI.** `components/pwa/UpdateToast.tsx` — floating glass bar above the
-bottom nav, copy: “Update available / A newer version of BookMate is ready.”
+bottom nav, copy: “Update available / Your account stays.”
 Primary: **Update & Restart**.
 
 ### 6.3 `display-mode: standalone`
@@ -906,8 +918,9 @@ npm run dev
 1. Create a Supabase project. Run `supabase/migrations/0001_init.sql` in the
    SQL editor. Enable Realtime if the `alter publication` statements were
    skipped.
-2. Auth → enable Email OTP / magic link. Add the production URL to redirect
-   allow-list.
+2. Auth → enable Email and Google. Add the production URL to redirect
+   allow-list (`/auth/callback`). Enable automatic account linking. Do not
+   reset the database if users already exist — `git push` does not wipe Auth.
 3. `cp .env.example .env.local` and fill
    `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
    `SUPABASE_SERVICE_ROLE_KEY`.
@@ -935,6 +948,7 @@ pure-Node PNG encoder (two ellipses, navy field). Vector source:
 | `VAPID_PRIVATE_KEY` | server | JWT for web-push |
 | `VAPID_SUBJECT` | server | `mailto:` or `https:` in VAPID JWT |
 | `NEXT_PUBLIC_APP_URL` | both | canonical origin |
+| `NEXT_PUBLIC_GITHUB_URL` | browser | Settings open-source link |
 
 ---
 
@@ -957,6 +971,9 @@ pure-Node PNG encoder (two ellipses, navy field). Vector source:
 | Service worker | `public/sw.js` |
 | Web manifest | `public/manifest.json` |
 | Push API | `app/api/push/send/route.ts` |
+| Google sign-in button | `components/auth/GoogleSignInButton.tsx` |
+| Room people (remove) | `components/room/TitlePeoplePanel.tsx` |
+| Google OAuth callback | `app/auth/callback/route.ts` + `middleware.ts` |
 | Schema | `supabase/migrations/0001_init.sql` |
 | Dual progress UI | `components/dashboard/DualProgressBar.tsx` |
 | Bottom nav | `components/layout/BottomNav.tsx` |

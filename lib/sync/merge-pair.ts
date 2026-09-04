@@ -18,6 +18,7 @@ export interface PairDocLike {
   profiles: Profile[];
   pushSubscriptions?: PushSubscriptionRecord[];
   removedBookIds?: string[];
+  shelfScopeByUser?: Record<string, "all" | string[]>;
 }
 
 function stamp(iso: string | null | undefined): number {
@@ -119,6 +120,15 @@ export function mergePairDocs(base: PairDocLike, incoming: PairDocLike): PairDoc
     .slice(0, 200);
   const profiles = mergeProfiles(base.profiles, incoming.profiles);
   const pushSubscriptions = mergePush(base.pushSubscriptions, incoming.pushSubscriptions);
+  const shelfScopeByUser = { ...(base.shelfScopeByUser ?? {}) };
+  for (const [uid, scope] of Object.entries(incoming.shelfScopeByUser ?? {})) {
+    const prev = shelfScopeByUser[uid];
+    if (scope === "all" || prev === "all") {
+      shelfScopeByUser[uid] = "all";
+    } else {
+      shelfScopeByUser[uid] = [...new Set([...(Array.isArray(prev) ? prev : []), ...scope])];
+    }
+  }
   return {
     pair,
     books,
@@ -128,6 +138,7 @@ export function mergePairDocs(base: PairDocLike, incoming: PairDocLike): PairDoc
     profiles,
     pushSubscriptions,
     removedBookIds,
+    shelfScopeByUser,
   };
 }
 
@@ -144,5 +155,6 @@ export function pairContentFingerprint(doc: PairDocLike): string {
     activities: doc.activities.slice(0, 20).map((a) => a.id),
     profiles: doc.profiles.map((p) => [p.id, p.displayName]),
     push: (doc.pushSubscriptions ?? []).map((s) => s.endpoint).sort(),
+    shelf: doc.shelfScopeByUser ?? {},
   });
 }

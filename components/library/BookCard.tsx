@@ -6,6 +6,7 @@ import { BidiText } from "@/components/ui/BidiText";
 import { BookCover } from "@/components/ui/BookCover";
 import type { Book } from "@/lib/types";
 import { percent } from "@/lib/utils";
+import { formatUnitMark, kindNoun, parseTitleKind } from "@/lib/media";
 
 export function BookCard({
   book,
@@ -28,6 +29,9 @@ export function BookCard({
           className="h-24 w-16 shrink-0 rounded-lg"
         />
         <div className="min-w-0 flex-1">
+          <p className="text-[11px] uppercase tracking-wider text-muted">
+            {kindNoun(parseTitleKind(book.kind))}
+          </p>
           <BidiText as="h3" className="truncate font-medium text-cream">
             {book.title}
           </BidiText>
@@ -44,11 +48,12 @@ export function BookCard({
             </div>
           </div>
           <p className="mt-1.5 text-[11px] text-muted">
-            You p.{myPage} · Buddy p.{theirPage}
+            You {formatUnitMark(parseTitleKind(book.kind), myPage)} · Buddy{" "}
+            {formatUnitMark(parseTitleKind(book.kind), theirPage)}
           </p>
         </div>
       </Link>
-      <ShareBookButton compact bookId={book.id} title={book.title} />
+        <ShareBookButton compact bookId={book.id} title={book.title} kind={parseTitleKind(book.kind)} />
     </article>
   );
 }

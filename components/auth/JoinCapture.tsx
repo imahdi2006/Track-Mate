@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { BookMateLogo } from "@/components/branding/BookMateLogo";
+import { LoadingScreen } from "@/components/ui/Loader";
 import {
   clearPendingJoinCode,
   parseBuddyCode,
@@ -50,13 +50,9 @@ export function JoinCapture({
       return;
     }
 
-    // Already in a room — still open the book deep-link; joinRoom is idempotent if same code.
+    // Already in a room — still join so a book link can grant that title only.
     if (room) {
-      if (room.inviteCode === clean) {
-        goAfterJoin(router, pendingBook);
-        return;
-      }
-      void joinRoom(clean)
+      void joinRoom(clean, pendingBook)
         .then(() => goAfterJoin(router, pendingBook))
         .catch((err) => {
           useToastStore.getState().push({
@@ -76,14 +72,14 @@ export function JoinCapture({
       return;
     }
 
-    void joinRoom(clean)
+    void joinRoom(clean, pendingBook)
       .then(() => {
         clearPendingJoinCode();
         const opened = pendingBook;
         useToastStore.getState().push({
           title: "You’re in the room",
           body: opened
-            ? "This book is now on your shared shelf."
+            ? "You can read this book together — not their whole library."
             : "Shared books and pages will show up here.",
           tone: "success",
         });
@@ -99,10 +95,5 @@ export function JoinCapture({
       });
   }, [hydrated, code, bookId, router]);
 
-  return (
-    <div className="flex min-h-dvh flex-col items-center justify-center gap-4">
-      <BookMateLogo size={64} />
-      <p className="text-sm text-muted">Opening this book invite…</p>
-    </div>
-  );
+  return <LoadingScreen label="Opening this book invite…" />;
 }

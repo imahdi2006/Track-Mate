@@ -8,6 +8,7 @@ import { useSessionStore } from "@/lib/store/session-store";
 function ActivityInner() {
   const profile = useSessionStore((s) => s.profile)!;
   const buddy = useSessionStore((s) => s.buddy);
+  const members = useSessionStore((s) => s.members);
   const activities = useSessionStore((s) => s.activities);
   return (
     <div className="space-y-4">
@@ -15,7 +16,7 @@ function ActivityInner() {
         <h1 className="font-display text-2xl">Activity</h1>
         <ThemeSwitch />
       </header>
-      <ActivityFeed activities={activities} me={profile} buddy={buddy} />
+      <ActivityFeed activities={activities} me={profile} buddy={buddy} members={members} />
     </div>
   );
 }

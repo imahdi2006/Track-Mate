@@ -1,5 +1,11 @@
 export const APP_NAME = "BookMate";
-export const APP_TAGLINE = "Read together. Stay in sync.";
+export const APP_TAGLINE = "Read, watch, and learn together.";
+
+export const GITHUB_URL =
+  process.env.NEXT_PUBLIC_GITHUB_URL ?? "https://github.com/imahdi2006/Page-Mate";
+/** Buy me a coffee — paused in Settings while the project is open source. */
+export const SUPPORT_URL =
+  process.env.NEXT_PUBLIC_SUPPORT_URL ?? "https://buymeacoffee.com/imahdi2006";
 
 export function isSupabaseConfigured(): boolean {
   return Boolean(

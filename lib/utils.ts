@@ -28,6 +28,15 @@ export function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
 
+export function formatDateTime(input: string | number | Date): string {
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
 export function relativeTime(input: string | number | Date): string {
   const then = new Date(input).getTime();
   if (Number.isNaN(then)) return "";

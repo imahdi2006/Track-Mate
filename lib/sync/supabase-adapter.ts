@@ -1,6 +1,7 @@
 "use client";
 
-import type { RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
+import type { RealtimeChannel, SupabaseClient, User } from "@supabase/supabase-js";
+import { EmailConfirmationRequired } from "@/lib/auth/errors";
 import { ACTIVE_ROOM_KEY, ROOM_MAX_MEMBERS, ROOM_MIN_MEMBERS } from "@/lib/config";
 import type {
   Activity,
@@ -15,7 +16,9 @@ import type {
   RoomMember,
   RoomSummary,
 } from "@/lib/types";
+import { looksLikeAccountHandle, nameFromAuthMeta, personName } from "@/lib/names";
 import { emptySnapshot } from "@/lib/types";
+import { parseTitleKind } from "@/lib/media";
 import { generateBuddyCode } from "@/lib/utils";
 import type { ProgressListener, SyncAdapter } from "@/lib/sync/types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
@@ -23,7 +26,10 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 function mapProfile(row: Record<string, unknown>): Profile {
   return {
     id: String(row.id),
-    displayName: String(row.display_name ?? "Reader"),
+    displayName: personName({
+      displayName: String(row.display_name ?? "Reader"),
+      email: (row.email as string | null) ?? null,
+    }),
     email: (row.email as string | null) ?? null,
     avatarHue: Number(row.avatar_hue ?? 220),
     createdAt: String(row.created_at ?? new Date().toISOString()),
@@ -55,6 +61,7 @@ function mapBook(row: Record<string, unknown>): Book {
     createdAt: String(row.created_at),
     completedAt: (row.completed_at as string | null) ?? null,
     olid: (row.olid as string | null) ?? null,
+    kind: parseTitleKind(row.kind),
   };
 }
 
@@ -89,6 +96,7 @@ function mapNote(row: Record<string, unknown>): MicroNote {
     emoji: (row.emoji as MicroNote["emoji"]) ?? null,
     note: (row.note as string | null) ?? null,
     createdAt: String(row.created_at),
+    readBy: [],
   };
 }
 
@@ -175,7 +183,7 @@ async function fetchSnapshot(
   ] = await Promise.all([
     sb
       .from("room_members")
-      .select("room_id, user_id, role, joined_at, profiles(*)")
+      .select("room_id, user_id, role, joined_at, shelf_scope, profiles(*)")
       .eq("room_id", room.id),
     sb
       .from("books")
@@ -197,19 +205,69 @@ async function fetchSnapshot(
     sb.from("push_subscriptions").select("*").eq("user_id", userId),
   ]);
 
+  let books = (bookRows ?? []).map(mapBook);
+  let progress = (progressRows ?? []).map(mapProgress);
+  let activities = (activityRows ?? []).map(mapActivity);
+  let notes = (noteRows ?? []).map(mapNote);
+
+  const bookIds = books.map((b) => b.id);
+  const { data: accessRows } = bookIds.length
+    ? await sb.from("book_access").select("book_id, user_id").in("book_id", bookIds)
+    : { data: [] as { book_id: string; user_id: string }[] };
+  const accessByUser = new Map<string, string[]>();
+  for (const row of accessRows ?? []) {
+    const uid = String(row.user_id);
+    const bid = String(row.book_id);
+    const list = accessByUser.get(uid) ?? [];
+    list.push(bid);
+    accessByUser.set(uid, list);
+  }
+
   const members: RoomMember[] = (memberRows ?? []).map((row) => {
     const p = row.profiles as unknown as Record<string, unknown> | null;
+    const shelfScope = row.shelf_scope === "books" ? "books" : "all";
+    const uid = String(row.user_id);
     return {
       roomId: String(row.room_id),
-      userId: String(row.user_id),
+      userId: uid,
       role: row.role === "owner" ? "owner" : "member",
       joinedAt: String(row.joined_at),
       profile: p ? mapProfile(p) : null,
+      shelfScope,
+      allowedBookIds:
+        shelfScope === "all" || row.role === "owner" ? null : (accessByUser.get(uid) ?? []),
     };
   });
 
   const others = members.filter((m) => m.userId !== userId);
   const buddy = others[0]?.profile ?? null;
+  const me = members.find((m) => m.userId === userId);
+
+  if (me?.shelfScope === "books") {
+    const allowed = new Set(me.allowedBookIds ?? []);
+    books = books.filter((b) => allowed.has(b.id));
+    progress = progress.filter((p) => allowed.has(p.bookId));
+    notes = notes.filter((n) => allowed.has(n.bookId));
+    activities = activities.filter((a) => !a.bookId || allowed.has(a.bookId));
+  }
+
+  const noteIds = notes.map((n) => n.id);
+  if (noteIds.length) {
+    const { data: readRows, error: readErr } = await sb
+      .from("note_reads")
+      .select("note_id, user_id, read_at")
+      .in("note_id", noteIds);
+    if (!readErr && readRows?.length) {
+      const byNote = new Map<string, { userId: string; readAt: string }[]>();
+      for (const row of readRows) {
+        const nid = String(row.note_id);
+        const list = byNote.get(nid) ?? [];
+        list.push({ userId: String(row.user_id), readAt: String(row.read_at) });
+        byNote.set(nid, list);
+      }
+      notes = notes.map((n) => ({ ...n, readBy: byNote.get(n.id) ?? [] }));
+    }
+  }
 
   return {
     profile,
@@ -218,10 +276,10 @@ async function fetchSnapshot(
     members,
     buddy,
     pair: room,
-    books: (bookRows ?? []).map(mapBook),
-    progress: (progressRows ?? []).map(mapProgress),
-    activities: (activityRows ?? []).map(mapActivity),
-    notes: (noteRows ?? []).map(mapNote),
+    books,
+    progress,
+    activities,
+    notes,
     removedBookIds: [],
     pushSubscriptions: (pushRows ?? []).map((row) => ({
       id: String(row.id),
@@ -255,6 +313,35 @@ async function sendPush(
   }
 }
 
+async function ensureProfile(sb: SupabaseClient, user: User): Promise<void> {
+  const nice = nameFromAuthMeta(user.user_metadata as Record<string, unknown>, user.email);
+  const { data: existing } = await sb
+    .from("profiles")
+    .select("display_name, email")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!existing) {
+    await sb.from("profiles").insert({
+      id: user.id,
+      display_name: nice,
+      email: user.email ?? null,
+      avatar_hue: Math.floor(Math.random() * 360),
+    });
+    return;
+  }
+  const patch: { email: string | null; display_name?: string } = {
+    email: user.email ?? (existing.email as string | null),
+  };
+  if (
+    looksLikeAccountHandle(String(existing.display_name ?? ""), user.email) &&
+    nice &&
+    nice !== existing.display_name
+  ) {
+    patch.display_name = nice;
+  }
+  await sb.from("profiles").update(patch).eq("id", user.id);
+}
+
 export function createSupabaseAdapter(
   client?: SupabaseClient | null,
 ): SyncAdapter | null {
@@ -265,6 +352,7 @@ export function createSupabaseAdapter(
   let roomId: string | null = null;
   const listeners = new Set<ProgressListener>();
   let channel: RealtimeChannel | null = null;
+  let visibilityBound = false;
 
   const notify = async () => {
     if (!userId) return;
@@ -279,7 +367,8 @@ export function createSupabaseAdapter(
     async hydrate() {
       const { data } = await sb.auth.getUser();
       userId = data.user?.id ?? null;
-      if (!userId) return emptySnapshot();
+      if (!userId || !data.user) return emptySnapshot();
+      await ensureProfile(sb, data.user);
       const snap = await fetchSnapshot(sb, userId);
       roomId = snap.room?.id ?? null;
       return snap;
@@ -304,9 +393,7 @@ export function createSupabaseAdapter(
         });
         if (error) throw error;
         if (!data.session || !data.user) {
-          throw new Error(
-            "Check your email to confirm the account, then sign in.",
-          );
+          throw new EmailConfirmationRequired(email);
         }
         userId = data.user.id;
       } else {
@@ -345,6 +432,20 @@ export function createSupabaseAdapter(
         .single();
       if (!profile) throw new Error("Couldn’t save your profile.");
       return mapProfile(profile);
+    },
+
+    async startOAuth(provider) {
+      if (provider !== "google") throw new Error("Unsupported sign-in provider.");
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const { error } = await sb.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${origin}/auth/callback`,
+          scopes: "openid email profile",
+          queryParams: { access_type: "offline", prompt: "select_account" },
+        },
+      });
+      if (error) throw error;
     },
 
     async requestPasswordReset(email: string) {
@@ -412,7 +513,7 @@ export function createSupabaseAdapter(
       return this.createRoom({ maxMembers: 2 });
     },
 
-    async joinRoom(inviteCode) {
+    async joinRoom(inviteCode, bookId) {
       if (!userId) throw new Error("Not authenticated");
       const code = inviteCode.trim().toUpperCase();
       const { data: existing, error } = await sb
@@ -423,14 +524,36 @@ export function createSupabaseAdapter(
       if (error) throw error;
       if (!existing) throw new Error("No room found for that invite code.");
       const room = mapRoom(existing);
+      const fullShelf = !bookId;
 
       const { data: already } = await sb
         .from("room_members")
-        .select("user_id")
+        .select("user_id, shelf_scope")
         .eq("room_id", room.id)
         .eq("user_id", userId)
         .maybeSingle();
+
+      const grantAccess = async () => {
+        if (fullShelf || !bookId) return;
+        await sb.from("book_access").upsert(
+          { book_id: bookId, user_id: userId },
+          { onConflict: "book_id,user_id" },
+        );
+        await sb.from("reading_progress").upsert(
+          {
+            room_id: room.id,
+            book_id: bookId,
+            user_id: userId,
+            current_page: 0,
+          },
+          { onConflict: "book_id,user_id" },
+        );
+      };
+
       if (already) {
+        if (already.shelf_scope !== "all" && bookId) {
+          await grantAccess();
+        }
         roomId = room.id;
         writeActiveRoomId(room.id);
         await notify();
@@ -449,27 +572,37 @@ export function createSupabaseAdapter(
         room_id: room.id,
         user_id: userId,
         role: "member",
+        shelf_scope: fullShelf ? "all" : "books",
       });
       if (joinErr) throw joinErr;
 
-      const { data: books } = await sb.from("books").select("id").eq("room_id", room.id);
-      if (books?.length) {
-        await sb.from("reading_progress").upsert(
-          books.map((b) => ({
-            room_id: room.id,
-            book_id: b.id,
-            user_id: userId,
-            current_page: 0,
-          })),
-          { onConflict: "book_id,user_id" },
-        );
+      if (fullShelf) {
+        const { data: books } = await sb.from("books").select("id").eq("room_id", room.id);
+        if (books?.length) {
+          await sb.from("reading_progress").upsert(
+            books.map((b) => ({
+              room_id: room.id,
+              book_id: b.id,
+              user_id: userId,
+              current_page: 0,
+            })),
+            { onConflict: "book_id,user_id" },
+          );
+          await sb.from("book_access").upsert(
+            books.map((b) => ({ book_id: b.id, user_id: userId })),
+            { onConflict: "book_id,user_id" },
+          );
+        }
+      } else {
+        await grantAccess();
       }
+
       await sb.from("activities").insert({
         room_id: room.id,
-        book_id: null,
+        book_id: bookId ?? null,
         user_id: userId,
         kind: "room_joined",
-        payload: {},
+        payload: bookId ? { bookId } : {},
       });
 
       roomId = room.id;
@@ -478,8 +611,8 @@ export function createSupabaseAdapter(
       return { room };
     },
 
-    async joinPair(buddyCode) {
-      const { room } = await this.joinRoom(buddyCode);
+    async joinPair(buddyCode, bookId) {
+      const { room } = await this.joinRoom(buddyCode, bookId);
       const snap = await fetchSnapshot(sb, userId!);
       return { pair: room, buddy: snap.buddy };
     },
@@ -541,12 +674,96 @@ export function createSupabaseAdapter(
       if (membership?.role !== "owner") {
         throw new Error("Only the room owner can kick members.");
       }
-      const { error } = await sb
+      const { data: removed, error } = await sb
         .from("room_members")
         .delete()
         .eq("room_id", roomId)
-        .eq("user_id", targetUserId);
+        .eq("user_id", targetUserId)
+        .select("user_id");
       if (error) throw error;
+      if (!removed?.length) throw new Error("Couldn’t remove them. Only the room owner can.");
+      await notify();
+    },
+
+    async removeFromTitle(bookId: string, targetUserId: string) {
+      if (!userId || !roomId) throw new Error("Room required");
+      if (targetUserId === userId) throw new Error("Use Leave book to step away yourself.");
+      const { data: me } = await sb
+        .from("room_members")
+        .select("role")
+        .eq("room_id", roomId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      const { data: book, error: bookErr } = await sb
+        .from("books")
+        .select("id, created_by, room_id")
+        .eq("id", bookId)
+        .maybeSingle();
+      if (bookErr) throw bookErr;
+      if (!book || String(book.room_id) !== roomId) throw new Error("Title not found.");
+      const isOwner = me?.role === "owner";
+      if (!isOwner && String(book.created_by) !== userId) {
+        throw new Error("Only the owner can remove people from this title.");
+      }
+      const { data: target } = await sb
+        .from("room_members")
+        .select("role, shelf_scope")
+        .eq("room_id", roomId)
+        .eq("user_id", targetUserId)
+        .maybeSingle();
+      if (!target) throw new Error("They are not in this room.");
+      if (target.role === "owner") throw new Error("You can’t remove the room owner.");
+
+      const { data: roomBooks } = await sb.from("books").select("id").eq("room_id", roomId);
+      const allIds = (roomBooks ?? []).map((b) => String(b.id));
+      const otherIds = allIds.filter((id) => id !== bookId);
+
+      if (target.shelf_scope !== "books") {
+        if (!isOwner) {
+          throw new Error("Only the room owner can remove someone who has the whole shelf.");
+        }
+        if (!otherIds.length) {
+          await this.kickMember(targetUserId);
+          return;
+        }
+        const { error: scopeErr } = await sb
+          .from("room_members")
+          .update({ shelf_scope: "books" })
+          .eq("room_id", roomId)
+          .eq("user_id", targetUserId);
+        if (scopeErr) throw scopeErr;
+        const { error: grantErr } = await sb.from("book_access").upsert(
+          otherIds.map((id) => ({ book_id: id, user_id: targetUserId })),
+          { onConflict: "book_id,user_id" },
+        );
+        if (grantErr) throw grantErr;
+      }
+
+      const { error: accessErr } = await sb
+        .from("book_access")
+        .delete()
+        .eq("book_id", bookId)
+        .eq("user_id", targetUserId);
+      if (accessErr) throw accessErr;
+
+      await sb.from("reading_progress").delete().eq("book_id", bookId).eq("user_id", targetUserId);
+      await sb.from("micro_notes").delete().eq("book_id", bookId).eq("user_id", targetUserId);
+
+      const { data: remaining } = await sb
+        .from("book_access")
+        .select("book_id")
+        .eq("user_id", targetUserId);
+      const stillHere = (remaining ?? []).some((row) => allIds.includes(String(row.book_id)));
+      const { data: after } = await sb
+        .from("room_members")
+        .select("shelf_scope")
+        .eq("room_id", roomId)
+        .eq("user_id", targetUserId)
+        .maybeSingle();
+      if (after?.shelf_scope === "books" && !stillHere && isOwner) {
+        await this.kickMember(targetUserId);
+        return;
+      }
       await notify();
     },
 
@@ -588,6 +805,7 @@ export function createSupabaseAdapter(
           author: input.author.trim(),
           total_pages: Math.max(1, Math.floor(input.totalPages)),
           cover_url: input.coverUrl ?? null,
+          kind: parseTitleKind(input.kind),
           status: input.status ?? "currently_reading",
           created_by: userId,
         })
@@ -597,10 +815,17 @@ export function createSupabaseAdapter(
       const book = mapBook(data);
       const { data: members } = await sb
         .from("room_members")
-        .select("user_id")
+        .select("user_id, role, shelf_scope")
         .eq("room_id", roomId);
-      const ids = (members ?? []).map((m) => String(m.user_id));
+      const viewers = (members ?? []).filter(
+        (m) => m.role === "owner" || m.shelf_scope !== "books" || String(m.user_id) === userId,
+      );
+      const ids = viewers.map((m) => String(m.user_id));
       if (ids.length) {
+        await sb.from("book_access").upsert(
+          ids.map((id) => ({ book_id: book.id, user_id: id })),
+          { onConflict: "book_id,user_id" },
+        );
         await sb.from("reading_progress").insert(
           ids.map((id) => ({
             room_id: roomId,
@@ -639,6 +864,7 @@ export function createSupabaseAdapter(
       if (patch.author !== undefined) row.author = patch.author.trim();
       if (patch.totalPages !== undefined) row.total_pages = Math.max(1, Math.floor(patch.totalPages));
       if (patch.coverUrl !== undefined) row.cover_url = patch.coverUrl;
+      if (patch.kind !== undefined) row.kind = parseTitleKind(patch.kind);
       if (Object.keys(row).length) {
         await sb.from("books").update(row).eq("id", bookId);
       }
@@ -768,6 +994,20 @@ export function createSupabaseAdapter(
       return note;
     },
 
+    async markNotesRead(bookId: string) {
+      if (!userId) return;
+      const mine = (await fetchSnapshot(sb, userId, roomId)).notes.filter(
+        (n) => n.bookId === bookId && n.userId !== userId,
+      );
+      if (!mine.length) return;
+      const { error } = await sb.from("note_reads").upsert(
+        mine.map((n) => ({ note_id: n.id, user_id: userId })),
+        { onConflict: "note_id,user_id", ignoreDuplicates: true },
+      );
+      if (error) return;
+      await notify();
+    },
+
     async savePushSubscription(sub) {
       if (!userId) return;
       await sb.from("push_subscriptions").upsert(
@@ -793,6 +1033,17 @@ export function createSupabaseAdapter(
 
     subscribe(onChange) {
       listeners.add(onChange);
+      // Safety net: some deletes (e.g. someone else removing you from a
+      // title) can miss a live event depending on RLS/row visibility at
+      // delete time. Re-pull the snapshot whenever the tab regains focus so
+      // the UI never needs a manual refresh.
+      if (!visibilityBound && typeof document !== "undefined") {
+        visibilityBound = true;
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") void notify();
+        });
+        window.addEventListener("focus", () => void notify());
+      }
       if (channel) {
         return () => listeners.delete(onChange);
       }
@@ -821,6 +1072,13 @@ export function createSupabaseAdapter(
         )
         .on(
           "postgres_changes",
+          { event: "*", schema: "public", table: "note_reads" },
+          () => {
+            void notify();
+          },
+        )
+        .on(
+          "postgres_changes",
           { event: "*", schema: "public", table: "books" },
           () => {
             void notify();
@@ -829,6 +1087,13 @@ export function createSupabaseAdapter(
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "reading_rooms" },
+          () => {
+            void notify();
+          },
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "book_access" },
           () => {
             void notify();
           },

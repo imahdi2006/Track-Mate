@@ -10,7 +10,12 @@
 - UI reads **only** from `useSessionStore`. Never fetch Supabase from a component.
 - Persistence goes through `SyncAdapter` (`local-adapter` | `supabase-adapter`).
 - Page turns: optimistic Zustand → `debounceMutex` 420ms → adapter. Persist the **latest** page, not every tap.
-- **Production auth:** Supabase Auth (email/password + reset emails).
+- Production auth: Supabase Auth (email/password + **Google OAuth** + reset emails). Google Client ID/Secret live in the Supabase dashboard; the app only calls `signInWithOAuth`. Same Gmail as an existing password user stays one account if automatic linking is on. `git push` does not wipe Supabase Auth.
+- Covers: catalog search (Open Library / iTunes / Google Books / **TVMaze** for series) — user **taps to approve**. Manual upload opens a **2:3 crop** (`CoverCropModal`) before save.
+- UI names go through `personName()` (`lib/names.ts`). Never show an email local-part on progress bars, people, or notes. `ensureProfile` overwrites handle-like `display_name` with Google `given_name` when present.
+- People of a title live on **book/course/movie detail**, not Home. `removeFromTitle` is optimistic (list updates without a refresh).
+- Note read receipts: `note_reads` (`0005_note_reads.sql`). Sender sees ticks and can tap for names. Apply `0005` on the existing Supabase project.
+- Shelf kinds: `book` | `course` | `movie` | `series` (`0004` + `0006_series.sql`). Progress units are pages / lessons / minutes / episodes. Movie tab has Film | Series.
 - **Local demo auth:** salted SHA-256 + HMAC (`pagemate-access-token`) via `/api/auth/*` (returns 501 when Supabase env is set).
 - Sign out is confirmed in a modal.
 - Do not cache `/api/*` or cross-origin in `public/sw.js`.
@@ -18,14 +23,15 @@
 - iOS Web Push requires Home Screen / standalone + **HTTPS**.
 
 ## Rooms & invites
-- Primary invite: **Share this book** → `/join/{code}?book={id}` (read+write membership).
-- Secondary: room invite with warning that the **whole shelf** is shared.
+- Primary invite: **Share this book** → `/join/{code}?book={id}` grants **that book only** (`shelf_scope=books` + `book_access`).
+- Secondary: room invite `/join/{code}` with warning that the **whole shelf** is shared (`shelf_scope=all`).
 - Never share account passwords. No read-only role in v1.
 - New rooms start with an **empty shelf** (no sample seed book).
-- Schema: `reading_rooms` + `room_members` (`supabase/migrations/0002_rooms.sql`).
+- Schema: `reading_rooms` + `room_members` (`0002_rooms.sql`); book scope + covers bucket (`0003_book_access.sql`); title kinds (`0004_title_kinds.sql`).
 
 ## Design
 - Colors: canvas `#0F172A`, brand `#6366F1`, accent `#F59E0B`, cream `#F5F0E8`.
+- Settings: GitHub / MIT open source. Buy Me a Coffee is commented out.
 - Logo: `components/branding/BookMateLogo.tsx`.
 - Fonts: Outfit + Fraunces + Vazirmatn via `next/font/local` from `app/fonts`. `adjustFontFallback: false`. Re-fetch with `node scripts/fetch-fonts.mjs`.
 - Theme: `useThemeStore` + `ThemeSwitch`. Persist `pagemate-theme`. Settings → Appearance only.

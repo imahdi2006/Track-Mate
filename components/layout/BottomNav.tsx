@@ -18,10 +18,10 @@ export function BottomNav() {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-canvas/80 pb-safe backdrop-blur-2xl"
+      className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-canvas/90 pb-[max(0.35rem,env(safe-area-inset-bottom))] backdrop-blur-2xl"
       aria-label="Primary"
     >
-      <ul className="mx-auto grid max-w-lg grid-cols-4 px-2 pt-1">
+      <ul className="mx-auto grid h-14 max-w-lg grid-cols-4">
         {ITEMS.map((item) => {
           const active =
             item.href === "/"
@@ -33,19 +33,21 @@ export function BottomNav() {
               <Link
                 href={item.href}
                 className={cn(
-                  "relative flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium",
+                  "flex h-full flex-col items-center justify-center gap-0.5 text-[10px] font-medium",
                   active ? "text-cream" : "text-muted",
                 )}
               >
-                {active ? (
-                  <motion.span
-                    layoutId="nav-pill"
-                    className="absolute inset-x-4 top-1 h-9 rounded-2xl bg-brand/20"
-                    transition={{ type: "spring", stiffness: 380, damping: 32 }}
-                  />
-                ) : null}
-                <Icon size={22} className="relative" strokeWidth={active ? 2.4 : 1.8} />
-                <span className="relative">{item.label}</span>
+                <span className="relative grid h-8 w-8 place-items-center">
+                  {active ? (
+                    <motion.span
+                      layoutId="nav-pill"
+                      className="absolute inset-0 rounded-xl bg-brand/30"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    />
+                  ) : null}
+                  <Icon size={20} className="relative" strokeWidth={active ? 2.4 : 1.8} />
+                </span>
+                <span className="relative leading-none">{item.label}</span>
               </Link>
             </li>
           );

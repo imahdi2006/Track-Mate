@@ -27,6 +27,7 @@ import type {
   ReadingRoom,
   RoomMember,
   RoomSummary,
+  TitleKind,
 } from "@/lib/types";
 import { clamp } from "@/lib/utils";
 import { fireCompletionConfetti } from "@/lib/confetti";
@@ -69,15 +70,16 @@ interface SessionState {
   requestPasswordReset: (email: string) => Promise<{ emailed: boolean; message: string; resetUrl?: string }>;
   signOut: () => Promise<void>;
   createRoom: (input?: CreateRoomInput) => Promise<void>;
-  joinRoom: (code: string) => Promise<void>;
+  joinRoom: (code: string, bookId?: string | null) => Promise<void>;
   leaveRoom: () => Promise<void>;
   deleteRoom: () => Promise<void>;
   kickMember: (userId: string) => Promise<void>;
+  removeFromTitle: (bookId: string, userId: string) => Promise<void>;
   setActiveRoom: (roomId: string) => Promise<void>;
   /** @deprecated Use createRoom */
   createPair: () => Promise<void>;
   /** @deprecated Use joinRoom */
-  joinPair: (code: string) => Promise<void>;
+  joinPair: (code: string, bookId?: string | null) => Promise<void>;
   /** @deprecated Use leaveRoom */
   leavePair: () => Promise<void>;
   rename: (displayName: string) => Promise<void>;
@@ -87,6 +89,7 @@ interface SessionState {
     totalPages: number;
     coverUrl?: string | null;
     status?: BookStatus;
+    kind?: TitleKind;
   }) => Promise<Book>;
   updateBook: (
     bookId: string,
@@ -95,8 +98,10 @@ interface SessionState {
       author?: string;
       totalPages?: number;
       coverUrl?: string | null;
+      kind?: TitleKind;
     },
   ) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
   removeBook: (bookId: string) => Promise<void>;
   setBookStatus: (bookId: string, status: BookStatus) => Promise<void>;
   setPageOptimistic: (
@@ -109,6 +114,7 @@ interface SessionState {
     emoji?: ReactionEmoji | null;
     note?: string | null;
   }) => Promise<void>;
+  markNotesRead: (bookId: string) => Promise<void>;
   savePushSubscription: (
     sub: Omit<PushSubscriptionRecord, "id" | "createdAt" | "userId">,
   ) => Promise<void>;
@@ -184,6 +190,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set({ ...snap, profile, lastError: null });
   },
 
+  signInWithGoogle: async () => {
+    await getAdapter().startOAuth("google");
+  },
+
   requestPasswordReset: async (email) => {
     return getAdapter().requestPasswordReset(email);
   },
@@ -215,14 +225,14 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     await get().createRoom({ maxMembers: 2 });
   },
 
-  joinRoom: async (code) => {
-    await getAdapter().joinRoom(code);
+  joinRoom: async (code, bookId) => {
+    await getAdapter().joinRoom(code, bookId);
     const snap = await getAdapter().hydrate();
     set(snap);
   },
 
-  joinPair: async (code) => {
-    await get().joinRoom(code);
+  joinPair: async (code, bookId) => {
+    await get().joinRoom(code, bookId);
   },
 
   leaveRoom: async () => {
@@ -245,6 +255,41 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     await getAdapter().kickMember(userId);
     const snap = await getAdapter().hydrate();
     set(snap);
+  },
+
+  removeFromTitle: async (bookId, userId) => {
+    const prev = get();
+    const members = prev.members
+      .map((m) => {
+        if (m.userId !== userId || m.role === "owner") return m;
+        const pool =
+          m.allowedBookIds === null || m.shelfScope === "all"
+            ? prev.books.map((b) => b.id)
+            : m.allowedBookIds;
+        return {
+          ...m,
+          shelfScope: "books" as const,
+          allowedBookIds: pool.filter((id) => id !== bookId),
+        };
+      })
+      .filter((m) => {
+        if (m.userId !== userId || m.role === "owner") return true;
+        return (m.allowedBookIds?.length ?? 0) > 0;
+      });
+    const buddy = members.find((m) => m.userId !== prev.profile?.id)?.profile ?? null;
+    set({
+      members,
+      buddy,
+      progress: prev.progress.filter((p) => !(p.bookId === bookId && p.userId === userId)),
+    });
+    try {
+      await getAdapter().removeFromTitle(bookId, userId);
+      const snap = await getAdapter().hydrate();
+      set(snap);
+    } catch (err) {
+      set({ members: prev.members, progress: prev.progress, buddy: prev.buddy });
+      throw err;
+    }
   },
 
   setActiveRoom: async (roomId) => {
@@ -279,6 +324,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
                   ? Math.max(1, Math.floor(patch.totalPages))
                   : b.totalPages,
               coverUrl: patch.coverUrl === undefined ? b.coverUrl : patch.coverUrl,
+              kind: patch.kind ?? b.kind,
             }
           : b,
       ),
@@ -405,6 +451,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     await getAdapter().addNote(input);
     const snap = await getAdapter().hydrate();
     set(snap);
+  },
+
+  markNotesRead: async (bookId) => {
+    try {
+      await getAdapter().markNotesRead(bookId);
+      const snap = await getAdapter().hydrate();
+      set(snap);
+    } catch {
+      /* receipts are best-effort until migration 0005 is applied */
+    }
   },
 
   savePushSubscription: async (sub) => {

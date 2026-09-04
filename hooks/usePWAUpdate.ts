@@ -39,6 +39,17 @@ export function usePWAUpdate() {
       if (reg) attach(reg);
     });
 
+    const checkForUpdate = () => {
+      void navigator.serviceWorker.getRegistration().then((reg) => {
+        if (reg) void reg.update();
+      });
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkForUpdate();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", checkForUpdate);
+
     const onControllerChange = () => {
       window.location.reload();
     };
@@ -46,6 +57,8 @@ export function usePWAUpdate() {
 
     return () => {
       mounted = false;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", checkForUpdate);
       navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
     };
   }, []);

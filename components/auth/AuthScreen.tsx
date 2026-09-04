@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { KeyRound, Mail, Sparkles } from "lucide-react";
 import { BookMateLogo } from "@/components/branding/BookMateLogo";
+import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
 import { isSupabaseConfigured } from "@/lib/config";
+import { isEmailConfirmationRequired } from "@/lib/auth/errors";
 import { readPendingJoinCode } from "@/lib/invite";
 import { useSessionStore } from "@/lib/store/session-store";
 import { useToastStore } from "@/lib/store/toast-store";
@@ -16,6 +18,7 @@ type AuthView = "signin" | "signup" | "forgot";
 
 export function AuthScreen() {
   const signIn = useSessionStore((s) => s.signIn);
+  const signInWithGoogle = useSessionStore((s) => s.signInWithGoogle);
   const requestPasswordReset = useSessionStore((s) => s.requestPasswordReset);
   const [view, setView] = useState<AuthView>("signin");
   const [name, setName] = useState("");
@@ -24,10 +27,19 @@ export function AuthScreen() {
   const [busy, setBusy] = useState(false);
   const [resetUrl, setResetUrl] = useState<string | null>(null);
   const [pendingJoin, setPendingJoin] = useState<string | null>(null);
+  const [checkEmail, setCheckEmail] = useState<string | null>(null);
   const cloud = isSupabaseConfigured();
 
   useEffect(() => {
     setPendingJoin(readPendingJoinCode());
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("auth") === "error") {
+      useToastStore.getState().push({
+        title: "Google sign-in didn’t finish",
+        body: "Approve BookMate in the Google prompt, or use email.",
+        tone: "warn",
+      });
+    }
   }, []);
 
   async function onSubmit(e: React.FormEvent) {
@@ -70,12 +82,35 @@ export function AuthScreen() {
         mode: view,
       });
     } catch (err) {
+      if (view === "signup" && isEmailConfirmationRequired(err)) {
+        setCheckEmail(err.email);
+        useToastStore.getState().push({
+          title: "Check your inbox",
+          body: err.message,
+          tone: "success",
+        });
+        return;
+      }
       useToastStore.getState().push({
         title: view === "signup" ? "Couldn’t create account" : "Couldn’t sign in",
         body: err instanceof Error ? err.message : "Try again",
         tone: "warn",
       });
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onGoogle() {
+    setBusy(true);
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      useToastStore.getState().push({
+        title: "Couldn’t open Google",
+        body: err instanceof Error ? err.message : "Try email instead.",
+        tone: "warn",
+      });
       setBusy(false);
     }
   }
@@ -92,13 +127,13 @@ export function AuthScreen() {
           <ThemeSwitch />
         </div>
         <h1 className="font-display mt-6 text-3xl leading-tight text-cream">
-          Two readers.
+          Read, watch, learn.
           <br />
-          One spine.
+          Stay in sync.
         </h1>
         <p className="mt-2 text-sm text-muted">
-          Email and password keep your buddy code. Same account, same pair —
-          the code does not change every visit.
+          Share a book, course, or movie — not your password. Google signs you in
+          or creates an account in one tap. Same Gmail as before keeps the same shelf.
         </p>
         {pendingJoin ? (
           <p className="mt-3 rounded-2xl bg-brand/15 px-3 py-2 text-sm text-cream">
@@ -107,7 +142,43 @@ export function AuthScreen() {
           </p>
         ) : null}
 
-        {view !== "forgot" ? (
+        {!checkEmail && view !== "forgot" ? (
+          <div className="mt-5 space-y-3">
+            <GoogleSignInButton busy={busy} disabled={busy} onClick={() => void onGoogle()} />
+            <p className="text-center text-[11px] text-muted">
+              Continue with Google signs you in or creates an account.
+            </p>
+            <p className="text-center text-[11px] text-muted">or email</p>
+          </div>
+        ) : null}
+
+        {checkEmail ? (
+          <div className="mt-6 space-y-3 rounded-2xl bg-brand/15 px-4 py-4">
+            <p className="font-display text-xl text-cream">Confirm your email</p>
+            <p className="text-sm text-cream/90">
+              We created your account. Open the message sent to{" "}
+              <span className="font-medium">{checkEmail}</span>, tap the link, then sign in
+              here. Check spam if you don’t see it within a few minutes.
+            </p>
+            <p className="text-xs text-muted">
+              That email comes from your BookMate project (Supabase), not from this screen.
+              If nothing arrives, wait a bit and try Create account again — this is not a failed signup.
+            </p>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => {
+                setCheckEmail(null);
+                setView("signin");
+                setPassword("");
+              }}
+            >
+              Back to sign in
+            </Button>
+          </div>
+        ) : null}
+
+        {!checkEmail && view !== "forgot" ? (
           <div className="mt-5 grid grid-cols-2 gap-1 rounded-2xl bg-white/5 p-1">
             <button
               type="button"
@@ -126,6 +197,7 @@ export function AuthScreen() {
           </div>
         ) : null}
 
+        {!checkEmail ? (
         <form onSubmit={onSubmit} className="mt-5 flex flex-col gap-3">
           {view === "signup" ? (
             <label className="text-xs font-medium uppercase tracking-wider text-muted">
@@ -251,6 +323,7 @@ export function AuthScreen() {
             </Button>
           ) : null}
         </form>
+        ) : null}
       </motion.div>
     </div>
   );

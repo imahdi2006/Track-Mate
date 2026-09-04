@@ -11,6 +11,7 @@ export interface PairDoc {
   profiles: Profile[];
   pushSubscriptions?: PushSubscriptionRecord[];
   removedBookIds?: string[];
+  shelfScopeByUser?: Record<string, "all" | string[]>;
 }
 
 type PairListener = (doc: PairDoc) => void;

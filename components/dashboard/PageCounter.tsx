@@ -5,15 +5,18 @@ import { Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useSessionStore } from "@/lib/store/session-store";
 import { cn } from "@/lib/utils";
+import { stepHints, unitNoun } from "@/lib/media";
 
 export function PageCounter({
   bookId,
   totalPages,
   currentPage,
+  kind = "book",
 }: {
   bookId: string;
   totalPages: number;
   currentPage: number;
+  kind?: import("@/lib/types").TitleKind;
 }) {
   const setPage = useSessionStore((s) => s.setPageOptimistic);
   const [draft, setDraft] = useState(String(currentPage));
@@ -34,7 +37,7 @@ export function PageCounter({
         <Button
           variant="secondary"
           size="icon"
-          aria-label="Minus one page"
+          aria-label={`Minus one ${unitNoun(kind, 1)}`}
           onClick={() => setPage(bookId, (p) => p - 1)}
         >
           <Minus size={18} />
@@ -50,26 +53,24 @@ export function PageCounter({
               }
             }}
             inputMode="numeric"
-            aria-label="Current page"
+            aria-label={`Current ${unitNoun(kind, 1)}`}
             className="w-28 bg-transparent text-center font-display text-5xl font-semibold text-cream outline-none"
           />
-          <p className="text-xs text-muted">of {totalPages} pages</p>
+          <p className="text-xs text-muted">
+            of {totalPages} {unitNoun(kind, totalPages)}
+          </p>
         </div>
         <Button
           variant="secondary"
           size="icon"
-          aria-label="Plus one page"
+          aria-label={`Plus one ${unitNoun(kind, 1)}`}
           onClick={() => setPage(bookId, (p) => p + 1)}
         >
           <Plus size={18} />
         </Button>
       </div>
       <div className="grid grid-cols-3 gap-2">
-        {[
-          { label: "+1 Page", d: 1 },
-          { label: "+5 Pages", d: 5 },
-          { label: "+10", d: 10 },
-        ].map((b) => (
+        {stepHints(kind).map((b) => (
           <button
             key={b.d}
             type="button"

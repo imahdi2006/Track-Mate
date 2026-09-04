@@ -47,14 +47,24 @@ export function DualProgressBar({
           aria-hidden
         />
       </div>
-      <div className="flex items-center justify-between text-[11px] text-muted">
-        <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-brand" />
-          {myName} · {mine}/{total}
+      <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="h-2 w-2 shrink-0 rounded-full bg-brand" />
+          <span dir="auto" className="truncate">
+            {myName}
+          </span>
+          <span className="shrink-0">
+            · {mine}/{total}
+          </span>
         </span>
-        <span className="flex items-center gap-1.5">
-          {theirName} · {theirs}/{total}
-          <span className="h-2 w-2 rounded-full bg-accent" />
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span dir="auto" className="truncate">
+            {theirName}
+          </span>
+          <span className="shrink-0">
+            · {theirs}/{total}
+          </span>
+          <span className="h-2 w-2 shrink-0 rounded-full bg-accent" />
         </span>
       </div>
     </div>

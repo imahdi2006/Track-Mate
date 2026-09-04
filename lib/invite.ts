@@ -1,4 +1,5 @@
 import { APP_NAME, PENDING_BOOK_KEY, PENDING_JOIN_KEY } from "@/lib/config";
+import { shareVerb } from "@/lib/media";
 
 export function parseBuddyCode(raw: string): string {
   const trimmed = raw.trim();
@@ -7,6 +8,26 @@ export function parseBuddyCode(raw: string): string {
   const fromQuery = trimmed.match(/[?&](?:join|code|pair)=([A-Za-z0-9]{4,8})/i);
   if (fromQuery) return fromQuery[1]!.toUpperCase().slice(0, 6);
   return trimmed.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 6);
+}
+
+/** Book id from `/join/{code}?book=` (pasted URL or query). */
+export function parseBookIdFromInvite(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed, "https://bookmate.local");
+    const book = url.searchParams.get("book")?.trim();
+    if (book) return book;
+  } catch {
+    /* not a URL */
+  }
+  const match = trimmed.match(/[?&]book=([^&]+)/i);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]).trim() || null;
+  } catch {
+    return match[1].trim() || null;
+  }
 }
 
 function originNow(): string {
@@ -71,9 +92,11 @@ export async function shareOrCopyBook(input: {
   bookId: string;
   buddyCode: string;
   title: string;
+  kind?: import("@/lib/types").TitleKind;
 }): Promise<ShareResult> {
   const url = bookShareUrl(input.bookId, input.buddyCode);
-  const text = `Let’s read “${input.title}” together on ${APP_NAME}.`;
+  const verb = shareVerb(input.kind ?? "book");
+  const text = `Let’s ${verb} “${input.title}” together on ${APP_NAME}.`;
 
   if (typeof navigator.share === "function") {
     try {

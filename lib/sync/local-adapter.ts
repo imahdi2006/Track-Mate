@@ -30,6 +30,8 @@ import type {
   RoomSummary,
 } from "@/lib/types";
 import { emptySnapshot, pairMemberIds, roomFromPair } from "@/lib/types";
+import { personName } from "@/lib/names";
+import { parseTitleKind } from "@/lib/media";
 import { generateBuddyCode, generateId } from "@/lib/utils";
 import { activityFromPageUpdate, type ProgressListener, type SyncAdapter } from "@/lib/sync/types";
 
@@ -67,6 +69,8 @@ interface PairData {
   notes: MicroNote[];
   pushSubscriptions: PushSubscriptionRecord[];
   removedBookIds: string[];
+  /** userId → whole shelf or a list of book ids from a book invite */
+  shelfScopeByUser?: Record<string, "all" | string[]>;
 }
 
 function emptyPairData(): PairData {
@@ -77,6 +81,82 @@ function emptyPairData(): PairData {
     notes: [],
     pushSubscriptions: [],
     removedBookIds: [],
+    shelfScopeByUser: {},
+  };
+}
+
+function memberScope(
+  pair: ReadingPair,
+  data: PairData,
+  userId: string,
+): "all" | string[] {
+  if (pair.userAId === userId) return "all";
+  const stored = data.shelfScopeByUser?.[userId];
+  if (!stored || stored === "all") return "all";
+  return stored;
+}
+
+function filterShelf(userId: string, pair: ReadingPair, data: PairData): PairData {
+  const scope = memberScope(pair, data, userId);
+  if (scope === "all") return data;
+  const allowed = new Set(scope);
+  return {
+    ...data,
+    books: data.books.filter((b) => allowed.has(b.id)),
+    progress: data.progress.filter((p) => allowed.has(p.bookId)),
+    notes: data.notes.filter((n) => allowed.has(n.bookId)),
+    activities: data.activities.filter((a) => !a.bookId || allowed.has(a.bookId)),
+  };
+}
+
+function grantBookScope(
+  data: PairData,
+  userId: string,
+  bookId: string | null | undefined,
+  fullShelf: boolean,
+): PairData {
+  const current = { ...(data.shelfScopeByUser ?? {}) };
+  if (fullShelf || !bookId) {
+    current[userId] = "all";
+    return { ...data, shelfScopeByUser: current };
+  }
+  const prev = current[userId];
+  if (prev === "all") {
+    return { ...data, shelfScopeByUser: current };
+  }
+  const ids = new Set(Array.isArray(prev) ? prev : []);
+  ids.add(bookId);
+  current[userId] = [...ids];
+  return { ...data, shelfScopeByUser: current };
+}
+
+function revokeTitleFromUser(
+  data: PairData,
+  pair: ReadingPair,
+  targetId: string,
+  bookId: string,
+): { data: PairData; kick: boolean } {
+  const scope = memberScope(pair, data, targetId);
+  const otherBooks = data.books.filter((b) => b.id !== bookId).map((b) => b.id);
+  const current = { ...(data.shelfScopeByUser ?? {}) };
+  let kick = false;
+  if (scope === "all") {
+    if (otherBooks.length === 0) kick = true;
+    else current[targetId] = otherBooks;
+  } else {
+    const next = scope.filter((id) => id !== bookId);
+    if (next.length === 0) kick = true;
+    else current[targetId] = next;
+  }
+  if (kick) delete current[targetId];
+  return {
+    kick,
+    data: {
+      ...data,
+      shelfScopeByUser: current,
+      progress: data.progress.filter((p) => !(p.bookId === bookId && p.userId === targetId)),
+      notes: data.notes.filter((n) => !(n.bookId === bookId && n.userId === targetId)),
+    },
   };
 }
 
@@ -120,6 +200,7 @@ function normalizeBooks(books: Book[], roomId: string): Book[] {
   return books.map((b) => ({
     ...b,
     roomId: b.roomId || b.pairId || roomId,
+    kind: parseTitleKind(b.kind),
   }));
 }
 
@@ -142,7 +223,7 @@ function findUserByEmail(email: string): Profile | null {
 function assemble(userId: string | null): BookMateSnapshot {
   if (!userId) return emptySnapshot();
   const users = readUsers();
-  const profile = users[userId] ?? null;
+  const profile = users[userId] ? { ...users[userId], displayName: personName(users[userId]) } : null;
   if (!profile) return emptySnapshot();
 
   const allPairs = findAllPairsForUser(userId);
@@ -159,15 +240,21 @@ function assemble(userId: string | null): BookMateSnapshot {
 
   const room = roomFromPair(pair);
   const memberIds = pairMemberIds(pair);
-  const members: RoomMember[] = memberIds.map((id) => ({
-    roomId: pair.id,
-    userId: id,
-    role: id === pair.userAId ? "owner" : "member",
-    joinedAt: pair.createdAt,
-    profile: users[id] ?? null,
-  }));
-  const others = members.filter((m) => m.userId !== userId);
   const data = readPairData(pair.id);
+  const members: RoomMember[] = memberIds.map((id) => {
+    const scope = memberScope(pair, data, id);
+    return {
+      roomId: pair.id,
+      userId: id,
+      role: id === pair.userAId ? "owner" : "member",
+      joinedAt: pair.createdAt,
+      profile: users[id] ? { ...users[id], displayName: personName(users[id]) } : null,
+      shelfScope: scope === "all" ? "all" : "books",
+      allowedBookIds: scope === "all" ? null : scope,
+    };
+  });
+  const others = members.filter((m) => m.userId !== userId);
+  const visible = filterShelf(userId, pair, data);
   return {
     profile,
     rooms,
@@ -175,12 +262,12 @@ function assemble(userId: string | null): BookMateSnapshot {
     members,
     buddy: others[0]?.profile ?? null,
     pair: room,
-    books: normalizeBooks(data.books, pair.id),
-    progress: data.progress,
-    activities: normalizeActivities(data.activities, pair.id),
-    notes: data.notes,
-    pushSubscriptions: data.pushSubscriptions.filter((s) => s.userId === userId),
-    removedBookIds: data.removedBookIds ?? [],
+    books: normalizeBooks(visible.books, pair.id),
+    progress: visible.progress,
+    activities: normalizeActivities(visible.activities, pair.id),
+    notes: visible.notes.map((n) => ({ ...n, readBy: n.readBy ?? [] })),
+    pushSubscriptions: visible.pushSubscriptions.filter((s) => s.userId === userId),
+    removedBookIds: visible.removedBookIds ?? [],
   };
 }
 
@@ -199,6 +286,7 @@ function pairDocFromStorage(pair: ReadingPair): RemotePairDoc {
     profiles,
     pushSubscriptions: data.pushSubscriptions,
     removedBookIds: data.removedBookIds ?? [],
+    shelfScopeByUser: data.shelfScopeByUser,
   };
 }
 
@@ -215,6 +303,7 @@ function writeMergedDoc(doc: PairDocLike, userId: string | null): void {
     notes: doc.notes,
     pushSubscriptions: doc.pushSubscriptions ?? existing.pushSubscriptions,
     removedBookIds: doc.removedBookIds ?? existing.removedBookIds ?? [],
+    shelfScopeByUser: doc.shelfScopeByUser ?? existing.shelfScopeByUser ?? {},
   });
   const users = readUsers();
   for (const profile of doc.profiles) {
@@ -407,6 +496,12 @@ export function createLocalAdapter(): SyncAdapter {
       return assemble(userId);
     },
 
+    async startOAuth() {
+      throw new Error(
+        "Google sign-in needs the cloud app (Supabase). Use email and password in local demo.",
+      );
+    },
+
     async authenticate(payload) {
       const email = normalizeEmail(payload.email);
       if (!email || !email.includes("@")) throw new Error("Enter a valid email.");
@@ -524,12 +619,12 @@ export function createLocalAdapter(): SyncAdapter {
       return this.createRoom({ maxMembers: 2 });
     },
 
-    async joinRoom(inviteCode) {
-      const { pair } = await this.joinPair(inviteCode);
+    async joinRoom(inviteCode, bookId) {
+      const { pair } = await this.joinPair(inviteCode, bookId);
       return { room: pair };
     },
 
-    async joinPair(buddyCode) {
+    async joinPair(buddyCode, bookId) {
       const userId = requireUser();
       const code = buddyCode.trim().toUpperCase();
       let pairs = readPairs();
@@ -548,7 +643,9 @@ export function createLocalAdapter(): SyncAdapter {
         );
       }
       const ids = pairMemberIds(pair);
+      const fullShelf = !bookId;
       if (ids.includes(userId)) {
+        mutatePair(pair.id, (data) => grantBookScope(data, userId, bookId, fullShelf));
         try {
           localStorage.setItem(ACTIVE_ROOM_KEY, pair.id);
         } catch {
@@ -573,8 +670,13 @@ export function createLocalAdapter(): SyncAdapter {
       pairs[code] = next;
       writePairs(pairs);
       mutatePair(next.id, (data) => {
-        const extras: ReadingProgress[] = data.books
-          .filter((b) => !data.progress.some((p) => p.bookId === b.id && p.userId === userId))
+        const scoped = grantBookScope(data, userId, bookId, fullShelf);
+        const visibleBooks =
+          memberScope(next, scoped, userId) === "all"
+            ? scoped.books
+            : scoped.books.filter((b) => (memberScope(next, scoped, userId) as string[]).includes(b.id));
+        const extras: ReadingProgress[] = visibleBooks
+          .filter((b) => !scoped.progress.some((p) => p.bookId === b.id && p.userId === userId))
           .map((b) => ({
             id: generateId(),
             bookId: b.id,
@@ -583,19 +685,19 @@ export function createLocalAdapter(): SyncAdapter {
             updatedAt: nowIso(),
           }));
         return {
-          ...data,
-          progress: [...data.progress, ...extras],
+          ...scoped,
+          progress: [...scoped.progress, ...extras],
           activities: [
             {
               id: generateId(),
               roomId: next.id,
-              bookId: null,
+              bookId: bookId ?? null,
               userId,
               kind: "room_joined",
-              payload: {},
+              payload: bookId ? { bookId } : {},
               createdAt: nowIso(),
             },
-            ...data.activities,
+            ...scoped.activities,
           ],
         };
       });
@@ -682,6 +784,56 @@ export function createLocalAdapter(): SyncAdapter {
       }
       pairs[pair.buddyCode] = next;
       writePairs(pairs);
+      mutatePair(pair.id, (data) => {
+        const shelf = { ...(data.shelfScopeByUser ?? {}) };
+        delete shelf[targetUserId];
+        return {
+          ...data,
+          shelfScopeByUser: shelf,
+          progress: data.progress.filter((p) => p.userId !== targetUserId),
+          notes: data.notes.filter((n) => n.userId !== targetUserId),
+        };
+      });
+      emit();
+    },
+
+    async removeFromTitle(bookId: string, targetUserId: string) {
+      const userId = requireUser();
+      const pair = findPairForUser(userId);
+      if (!pair) throw new Error("Room required");
+      if (targetUserId === userId) throw new Error("Use Leave book to step away yourself.");
+      if (targetUserId === pair.userAId) throw new Error("You can’t remove the room owner.");
+      const data = readPairData(pair.id);
+      const book = data.books.find((b) => b.id === bookId);
+      if (!book) throw new Error("Title not found.");
+      const isOwner = pair.userAId === userId;
+      if (!isOwner && book.createdBy !== userId) {
+        throw new Error("Only the owner can remove people from this title.");
+      }
+      const scope = memberScope(pair, data, targetUserId);
+      if (scope === "all" && !isOwner) {
+        throw new Error("Only the room owner can remove someone who has the whole shelf.");
+      }
+      const revoked = revokeTitleFromUser(data, pair, targetUserId, bookId);
+      writePairData(pair.id, revoked.data);
+      if (revoked.kick) {
+        const pairs = readPairs();
+        let next: ReadingPair = { ...pair };
+        if (pair.userBId === targetUserId) {
+          next = {
+            ...pair,
+            userBId: pair.memberIds?.[0] ?? null,
+            memberIds: (pair.memberIds ?? []).slice(1),
+          };
+        } else {
+          next = {
+            ...pair,
+            memberIds: (pair.memberIds ?? []).filter((id) => id !== targetUserId),
+          };
+        }
+        pairs[pair.buddyCode] = next;
+        writePairs(pairs);
+      }
       emit();
     },
 
@@ -726,34 +878,43 @@ export function createLocalAdapter(): SyncAdapter {
         createdBy: userId,
         createdAt: nowIso(),
         completedAt: null,
+        kind: parseTitleKind(input.kind),
       };
-      const members = pairMemberIds(pair);
-      mutatePair(pair.id, (data) => ({
-        ...data,
-        books: [book, ...data.books],
-        progress: [
-          ...data.progress,
-          ...members.map((id) => ({
-            id: generateId(),
-            bookId: book.id,
-            userId: id,
-            currentPage: 0,
-            updatedAt: nowIso(),
-          })),
-        ],
-        activities: [
-          {
-            id: generateId(),
-            roomId: pair.id,
-            bookId: book.id,
-            userId,
-            kind: "book_added" as const,
-            payload: { bookTitle: book.title },
-            createdAt: nowIso(),
-          },
-          ...data.activities,
-        ].slice(0, 200),
-      }));
+      mutatePair(pair.id, (data) => {
+        let withBook = { ...data, books: [book, ...data.books] };
+        if (memberScope(pair, data, userId) !== "all") {
+          withBook = grantBookScope(withBook, userId, book.id, false);
+        }
+        const viewers = pairMemberIds(pair).filter((id) => {
+          if (id === userId || pair.userAId === id) return true;
+          return memberScope(pair, data, id) === "all";
+        });
+        return {
+          ...withBook,
+          progress: [
+            ...data.progress,
+            ...viewers.map((id) => ({
+              id: generateId(),
+              bookId: book.id,
+              userId: id,
+              currentPage: 0,
+              updatedAt: nowIso(),
+            })),
+          ],
+          activities: [
+            {
+              id: generateId(),
+              roomId: pair.id,
+              bookId: book.id,
+              userId,
+              kind: "book_added" as const,
+              payload: { bookTitle: book.title },
+              createdAt: nowIso(),
+            },
+            ...data.activities,
+          ].slice(0, 200),
+        };
+      });
       emit();
       return book;
     },
@@ -791,6 +952,7 @@ export function createLocalAdapter(): SyncAdapter {
             totalPages:
               patch.totalPages !== undefined ? Math.max(1, Math.floor(patch.totalPages)) : b.totalPages,
             coverUrl: patch.coverUrl === undefined ? b.coverUrl : patch.coverUrl,
+            kind: patch.kind ? parseTitleKind(patch.kind) : b.kind,
           };
         }),
       }));
@@ -887,6 +1049,7 @@ export function createLocalAdapter(): SyncAdapter {
         emoji: input.emoji ?? null,
         note: input.note?.trim() || null,
         createdAt: nowIso(),
+        readBy: [],
       };
       mutatePair(pair.id, (data) => {
         const book = data.books.find((b) => b.id === input.bookId);
@@ -920,6 +1083,23 @@ export function createLocalAdapter(): SyncAdapter {
         bookTitle: readPairData(pair.id).books.find((b) => b.id === input.bookId)?.title,
       });
       return note;
+    },
+
+    async markNotesRead(bookId: string) {
+      const userId = requireUser();
+      const pair = findPairForUser(userId);
+      if (!pair) return;
+      const at = nowIso();
+      mutatePair(pair.id, (data) => ({
+        ...data,
+        notes: data.notes.map((n) => {
+          if (n.bookId !== bookId || n.userId === userId) return { ...n, readBy: n.readBy ?? [] };
+          const readBy = n.readBy ?? [];
+          if (readBy.some((r) => r.userId === userId)) return { ...n, readBy };
+          return { ...n, readBy: [...readBy, { userId, readAt: at }] };
+        }),
+      }));
+      emit();
     },
 
     async savePushSubscription(sub) {

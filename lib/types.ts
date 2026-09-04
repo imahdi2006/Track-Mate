@@ -1,5 +1,8 @@
 export type BookStatus = "currently_reading" | "want_to_read" | "completed";
 
+/** Shelf item: a book, a course, a movie, or a TV series. Stored on `books.kind`. */
+export type TitleKind = "book" | "course" | "movie" | "series";
+
 export type ActivityKind =
   | "page_update"
   | "reaction"
@@ -36,6 +39,17 @@ export interface RoomMember {
   role: RoomMemberRole;
   joinedAt: string;
   profile: Profile | null;
+  /** `all` = whole shelf; `books` = only titles granted via a book invite */
+  shelfScope: "all" | "books";
+  /** `null` means every title in the room. */
+  allowedBookIds: string[] | null;
+}
+
+export function memberCanAccessBook(member: RoomMember, bookId: string): boolean {
+  if (member.role === "owner" || member.shelfScope === "all" || member.allowedBookIds === null) {
+    return true;
+  }
+  return member.allowedBookIds.includes(bookId);
 }
 
 /** Local / pair-doc wire shape (maps to ReadingRoom via inviteCode = buddyCode). */
@@ -83,6 +97,8 @@ export interface Book {
   createdAt: string;
   completedAt: string | null;
   olid?: string | null;
+  /** Defaults to book for older rows. */
+  kind?: TitleKind;
 }
 
 export interface ReadingProgress {
@@ -113,6 +129,7 @@ export interface MicroNote {
   emoji: ReactionEmoji | null;
   note: string | null;
   createdAt: string;
+  readBy: { userId: string; readAt: string }[];
 }
 
 export interface PushSubscriptionRecord {
@@ -204,6 +221,7 @@ export type QueuedMutation =
         author?: string;
         totalPages?: number;
         coverUrl?: string | null;
+        kind?: TitleKind;
       };
     }
   | {

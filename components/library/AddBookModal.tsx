@@ -1,13 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { ArrowLeft, Library, Pencil, Search } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { coverUrlFromDoc, searchOpenLibrary } from "@/lib/openlibrary";
-import type { BookStatus, OpenLibraryDoc } from "@/lib/types";
+import { CatalogPicker } from "@/components/library/CatalogPicker";
+import { CoverPicker } from "@/components/library/CoverPicker";
+import { KindToggle, ShelfStatusToggle } from "@/components/library/ShelfToggles";
+import { BookCover } from "@/components/ui/BookCover";
+import { BidiText } from "@/components/ui/BidiText";
+import { fetchSeriesSeasons, type CatalogHit, type SeriesSeason } from "@/lib/catalog";
+import {
+  creatorLabel,
+  defaultTotalUnits,
+  kindNoun,
+  kindNounPlural,
+  unitNoun,
+  unitTotalPlaceholder,
+} from "@/lib/media";
+import type { BookStatus, TitleKind } from "@/lib/types";
 import { useSessionStore } from "@/lib/store/session-store";
+import { useToastStore } from "@/lib/store/toast-store";
 
 export function AddBookModal({
   open,
@@ -17,42 +31,81 @@ export function AddBookModal({
   onClose: () => void;
 }) {
   const addBook = useSessionStore((s) => s.addBook);
+  const [kind, setKind] = useState<TitleKind>("book");
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<OpenLibraryDoc[]>([]);
-  const [searching, setSearching] = useState(false);
   const [title, setTitle] = useState("");
   const [author, setAuthor] = useState("");
-  const [pages, setPages] = useState("320");
+  const [pages, setPages] = useState(String(defaultTotalUnits("book")));
   const [cover, setCover] = useState("");
   const [status, setStatus] = useState<BookStatus>("currently_reading");
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState<"search" | "review">("search");
+  const [manual, setManual] = useState(false);
+  const [showTitle, setShowTitle] = useState("");
+  const [seasons, setSeasons] = useState<SeriesSeason[]>([]);
+  const [seasonKey, setSeasonKey] = useState("all");
 
   useEffect(() => {
-    const q = query.trim();
-    if (q.length < 2) {
-      setResults([]);
-      return;
-    }
-    const t = window.setTimeout(async () => {
-      setSearching(true);
-      try {
-        setResults(await searchOpenLibrary(q));
-      } catch {
-        setResults([]);
-      } finally {
-        setSearching(false);
-      }
-    }, 320);
-    return () => window.clearTimeout(t);
-  }, [query]);
-
-  function pick(doc: OpenLibraryDoc) {
-    setTitle(doc.title);
-    setAuthor(doc.author_name?.[0] ?? "");
-    setPages(String(doc.number_of_pages_median ?? 300));
-    setCover(coverUrlFromDoc(doc) ?? "");
+    if (!open) return;
     setQuery("");
-    setResults([]);
+    setTitle("");
+    setAuthor("");
+    setCover("");
+    setPages(String(defaultTotalUnits(kind)));
+    setStatus("currently_reading");
+    setStep("search");
+    setManual(false);
+    setBusy(false);
+    setShowTitle("");
+    setSeasons([]);
+    setSeasonKey("all");
+  }, [open]);
+
+  function pickKind(next: TitleKind) {
+    setKind(next);
+    if (step === "search") {
+      setPages(String(defaultTotalUnits(next)));
+    }
+  }
+
+  function pickSeason(next: SeriesSeason) {
+    setSeasonKey(next.key);
+    setPages(String(next.episodes));
+    setTitle(`${showTitle}${next.titleSuffix}`);
+  }
+
+  async function approve(hit: CatalogHit) {
+    setKind(hit.kind);
+    setShowTitle(hit.title);
+    setTitle(hit.title);
+    setAuthor(hit.creator);
+    setPages(String(hit.totalUnits));
+    setCover(hit.coverUrl ?? "");
+    setQuery("");
+    setManual(false);
+    setSeasons([]);
+    setSeasonKey("all");
+    if (hit.kind === "series") {
+      setBusy(true);
+      try {
+        const list = await fetchSeriesSeasons(hit.id);
+        setSeasons(list);
+        const all = list.find((s) => s.number === "all") ?? list[0];
+        if (all) {
+          setSeasonKey(all.key);
+          setPages(String(all.episodes));
+          setTitle(`${hit.title}${all.titleSuffix}`);
+        }
+      } finally {
+        setBusy(false);
+      }
+    }
+    setStep("review");
+  }
+
+  function startManual() {
+    setManual(true);
+    setStep("review");
   }
 
   async function submit(e: React.FormEvent) {
@@ -66,98 +119,147 @@ export function AddBookModal({
         totalPages: Math.max(1, Number(pages) || 1),
         coverUrl: cover.trim() || null,
         status,
+        kind,
       });
-      setTitle("");
-      setAuthor("");
-      setCover("");
-      setPages("320");
       onClose();
+    } catch (err) {
+      useToastStore.getState().push({
+        title: "Couldn’t add that",
+        body: err instanceof Error ? err.message : "Try again",
+        tone: "warn",
+      });
     } finally {
       setBusy(false);
     }
   }
 
-  return (
-    <Modal open={open} onClose={onClose} title="Add a book">
-      <label className="relative block">
-        <Search size={16} className="absolute top-4 left-3 text-muted" />
-        <Input
-          className="pl-9"
-          dir="auto"
-          placeholder="Search Open Library…"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      </label>
-      {searching ? <p className="mt-2 text-xs text-muted">Searching…</p> : null}
-      {results.length > 0 ? (
-        <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-          {results.map((doc) => (
-            <li key={doc.key}>
-              <button
-                type="button"
-                onClick={() => pick(doc)}
-                className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left hover:bg-white/5"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={coverUrlFromDoc(doc, "S") ?? "/icons/icon-192.png"}
-                  alt=""
-                  className="h-12 w-8 rounded object-cover"
-                />
-                <span className="min-w-0">
-                  <span className="block truncate text-sm text-cream" dir="auto">
-                    {doc.title}
-                  </span>
-                  <span className="block truncate text-xs text-muted" dir="auto">
-                    {doc.author_name?.[0]}
-                    {doc.number_of_pages_median ? ` · ${doc.number_of_pages_median}p` : ""}
-                  </span>
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+  const noun = kindNoun(kind);
 
-      <form onSubmit={submit} className="mt-4 space-y-3">
-        <Input dir="auto" placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} required />
-        <Input dir="auto" placeholder="Author" value={author} onChange={(e) => setAuthor(e.target.value)} />
-        <Input
-          placeholder="Total pages"
-          inputMode="numeric"
-          value={pages}
-          onChange={(e) => setPages(e.target.value)}
-        />
-        <Input
-          placeholder="Cover image URL (optional)"
-          value={cover}
-          onChange={(e) => setCover(e.target.value)}
-        />
-        <div className="flex gap-2 text-xs">
-          {(
-            [
-              ["currently_reading", "Reading"],
-              ["want_to_read", "Want to read"],
-              ["completed", "Completed"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setStatus(value)}
-              className={`flex-1 rounded-xl py-2 ${
-                status === value ? "bg-brand text-white" : "bg-white/5 text-muted"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Add to library"
+      icon={<Library size={22} />}
+    >
+      {step === "search" ? (
+        <div className="space-y-3">
+          <KindToggle value={kind} onChange={pickKind} />
+          <label className="relative block">
+            <Search size={16} className="absolute top-4 left-3 text-muted" />
+            <Input
+              className="pl-9"
+              dir="auto"
+              autoFocus
+              placeholder={`Search ${kindNounPlural(kind)}…`}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
+          <CatalogPicker kind={kind} query={query} onApprove={(hit) => void approve(hit)} />
+          {busy && step === "search" ? (
+            <p className="text-center text-xs text-muted">Loading seasons…</p>
+          ) : null}
+          <button
+            type="button"
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl text-sm text-muted hover:bg-white/5 hover:text-cream"
+            onClick={startManual}
+          >
+            <Pencil size={14} />
+            Not listed — add it yourself
+          </button>
         </div>
-        <Button type="submit" className="w-full" disabled={busy || !title.trim()}>
-          {busy ? "Adding…" : "Add to library"}
-        </Button>
-      </form>
+      ) : (
+        <form onSubmit={submit} className="space-y-3">
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center gap-1 text-sm text-muted"
+            onClick={() => {
+              setStep("search");
+              setManual(false);
+            }}
+          >
+            <ArrowLeft size={16} />
+            Search again
+          </button>
+
+          {!manual ? (
+            <div className="flex gap-3 rounded-2xl bg-white/5 p-3">
+              <BookCover
+                title={title}
+                author={author}
+                coverUrl={cover}
+                className="h-28 w-[4.5rem] shrink-0 rounded-xl"
+              />
+              <div className="min-w-0 flex-1">
+                <BidiText as="p" className="font-display text-lg leading-snug">
+                  {title || `Untitled ${noun}`}
+                </BidiText>
+                <BidiText as="p" className="mt-0.5 text-sm text-muted">
+                  {author || creatorLabel(kind)}
+                </BidiText>
+                <p className="mt-2 text-xs text-muted">
+                  {pages} {unitNoun(kind, Number(pages) || 0)}
+                </p>
+                {seasons.length > 1 ? (
+                  <div className="mt-2 flex gap-1 overflow-x-auto pb-1">
+                    {seasons.map((s) => (
+                      <button
+                        key={s.key}
+                        type="button"
+                        onClick={() => pickSeason(s)}
+                        className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                          seasonKey === s.key ? "bg-brand text-white" : "bg-white/8 text-muted"
+                        }`}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  className="mt-2 inline-flex min-h-11 items-center gap-1 text-xs text-brand-glow"
+                  onClick={() => setManual(true)}
+                >
+                  <Pencil size={12} />
+                  Fix title, cover, or length
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <CoverPicker value={cover} onChange={setCover} compact />
+              <Input
+                dir="auto"
+                placeholder="Title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  dir="auto"
+                  placeholder={creatorLabel(kind)}
+                  value={author}
+                  onChange={(e) => setAuthor(e.target.value)}
+                />
+                <Input
+                  placeholder={unitTotalPlaceholder(kind)}
+                  inputMode="numeric"
+                  value={pages}
+                  onChange={(e) => setPages(e.target.value)}
+                />
+              </div>
+            </>
+          )}
+
+          <ShelfStatusToggle kind={kind} value={status} onChange={setStatus} />
+          <Button type="submit" className="w-full" disabled={busy || !title.trim()}>
+            {busy ? "Adding…" : `Add ${noun}`}
+          </Button>
+        </form>
+      )}
     </Modal>
   );
 }

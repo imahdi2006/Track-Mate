@@ -23,7 +23,9 @@ export function UpdateToast() {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-cream">Update available</p>
-              <p className="text-xs text-muted">A newer version of BookMate is ready.</p>
+              <p className="text-xs text-muted">
+                Your account stays. Tap to load the new BookMate on this device.
+              </p>
             </div>
             <Button size="sm" onClick={applyUpdate}>
               Update & Restart

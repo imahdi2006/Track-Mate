@@ -5,15 +5,19 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Copy, Link2, Users } from "lucide-react";
 import { BookMateLogo } from "@/components/branding/BookMateLogo";
+import { LoadingScreen } from "@/components/ui/Loader";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
 import { ROOM_MAX_MEMBERS, ROOM_MIN_MEMBERS } from "@/lib/config";
 import {
   clearPendingJoinCode,
+  parseBookIdFromInvite,
   parseBuddyCode,
+  readPendingBookId,
   readPendingJoinCode,
   takePendingBookId,
+  writePendingBookId,
 } from "@/lib/invite";
 import { useSessionStore } from "@/lib/store/session-store";
 import { useToastStore } from "@/lib/store/toast-store";
@@ -42,12 +46,15 @@ export function PairingScreen() {
     setCode(pending);
     setMode("join");
     setBusy(true);
-    void joinRoom(pending)
+    const pendingBook = readPendingBookId();
+    void joinRoom(pending, pendingBook)
       .then(() => {
         clearPendingJoinCode();
         useToastStore.getState().push({
           title: "You’re in the room",
-          body: "Open a book from Home — share a book link to invite others.",
+          body: pendingBook
+            ? "You can read this book together — not their whole library."
+            : "Open a book from Home — share a book link to invite others.",
           tone: "success",
         });
         afterJoin(router);
@@ -83,9 +90,12 @@ export function PairingScreen() {
     e.preventDefault();
     const clean = parseBuddyCode(code);
     if (clean.length < 6) return;
+    const fromPaste = parseBookIdFromInvite(code);
+    const pendingBook = fromPaste || readPendingBookId();
+    if (pendingBook) writePendingBookId(pendingBook);
     setBusy(true);
     try {
-      await joinRoom(clean);
+      await joinRoom(clean, pendingBook);
       clearPendingJoinCode();
       afterJoin(router);
     } catch (err) {
@@ -111,6 +121,10 @@ export function PairingScreen() {
         tone: "warn",
       });
     }
+  }
+
+  if (busy && mode === "join" && !room) {
+    return <LoadingScreen label="Opening this book invite…" />;
   }
 
   return (

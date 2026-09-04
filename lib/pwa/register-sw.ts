@@ -8,7 +8,9 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
       scope: "/",
     });
     await reg.update();
-    if (reg.waiting) {
+    // First install only — if a controller already exists, leave the waiting
+    // worker so UpdateToast can ask before restarting.
+    if (reg.waiting && !navigator.serviceWorker.controller) {
       reg.waiting.postMessage({ type: "SKIP_WAITING" });
     }
     return reg;

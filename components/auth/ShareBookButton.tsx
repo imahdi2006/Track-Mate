@@ -6,6 +6,7 @@ import { Share2 } from "lucide-react";
 import { ShareLinkModal } from "@/components/auth/ShareLinkModal";
 import { Button } from "@/components/ui/Button";
 import { bookShareUrl, shareOrCopyBook } from "@/lib/invite";
+import { kindNoun } from "@/lib/media";
 import { publishPairDoc } from "@/lib/sync/pair-client";
 import { getSyncMode, useSessionStore } from "@/lib/store/session-store";
 import { useToastStore } from "@/lib/store/toast-store";
@@ -14,13 +15,18 @@ import { cn } from "@/lib/utils";
 export function ShareBookButton({
   bookId,
   title,
+  kind,
   compact = false,
   className,
+  iconLabel = false,
 }: {
   bookId: string;
   title: string;
+  kind?: import("@/lib/types").TitleKind;
   compact?: boolean;
   className?: string;
+  /** Icon + caption, for the title card toolbar. */
+  iconLabel?: boolean;
 }) {
   const inviteCode = useSessionStore((s) => s.room?.inviteCode);
   const [manualUrl, setManualUrl] = useState<string | null>(null);
@@ -64,14 +70,14 @@ export function ShareBookButton({
           throw new Error("Could not save the invite on the server. Try again in a moment.");
         }
       }
-      const result = await shareOrCopyBook({ bookId, buddyCode: code, title });
+      const result = await shareOrCopyBook({ bookId, buddyCode: code, title, kind });
       if (result === "manual") {
         setManualUrl(bookShareUrl(bookId, code));
         return;
       }
       useToastStore.getState().push({
         title: result === "shared" ? "Book invite opened" : "Book link copied",
-        body: "They open it, sign in, and land on this book — not your password.",
+        body: "They only see this book — not your whole library or account.",
         tone: "success",
       });
     } catch (err) {
@@ -87,7 +93,19 @@ export function ShareBookButton({
 
   return (
     <>
-      {compact ? (
+      {iconLabel ? (
+        <button
+          type="button"
+          onClick={(e) => void share(e)}
+          className={cn(
+            "flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium text-cream hover:bg-white/8",
+            className,
+          )}
+        >
+          <Share2 size={18} />
+          Share
+        </button>
+      ) : compact ? (
         <button
           type="button"
           aria-label={`Share ${title}`}
@@ -102,7 +120,7 @@ export function ShareBookButton({
       ) : (
         <Button className={cn("w-full", className)} onClick={(e) => void share(e)}>
           <Share2 size={16} />
-          Share this book
+          Share this {kindNoun(kind ?? "book")}
         </Button>
       )}
       <ShareLinkModal
@@ -110,6 +128,7 @@ export function ShareBookButton({
         onClose={() => setManualUrl(null)}
         title="Share this book"
         url={manualUrl ?? ""}
+        warning="They only see this book — not your whole library or account."
       />
     </>
   );

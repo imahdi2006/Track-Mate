@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import localFont from "next/font/local";
 import { AppProviders } from "@/components/providers/AppProviders";
+import { StyledComponentsRegistry } from "@/components/providers/StyledComponentsRegistry";
 import { ThemeScript } from "@/components/theme/ThemeScript";
 import { APP_NAME } from "@/lib/config";
 import "./globals.css";
@@ -84,7 +85,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
       <body className="app-bg min-h-dvh font-sans antialiased">
-        <AppProviders>{children}</AppProviders>
+        <StyledComponentsRegistry>
+          <AppProviders>{children}</AppProviders>
+        </StyledComponentsRegistry>
       </body>
     </html>
   );

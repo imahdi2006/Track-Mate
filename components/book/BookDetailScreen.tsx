@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, DoorOpen, Pencil, Trash2 } from "lucide-react";
 import { ShareBookButton } from "@/components/auth/ShareBookButton";
+import { NoteReadTicks } from "@/components/activity/NoteReadTicks";
+import { TitlePeoplePanel } from "@/components/room/TitlePeoplePanel";
 import { DualProgressBar } from "@/components/dashboard/DualProgressBar";
 import { LeadIndicator } from "@/components/dashboard/LeadIndicator";
 import { PageCounter } from "@/components/dashboard/PageCounter";
@@ -14,16 +16,12 @@ import { BookCover } from "@/components/ui/BookCover";
 import { BidiText } from "@/components/ui/BidiText";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { personName } from "@/lib/names";
 import { useSessionStore } from "@/lib/store/session-store";
 import { useToastStore } from "@/lib/store/toast-store";
-import { cn, relativeTime } from "@/lib/utils";
-import type { BookStatus } from "@/lib/types";
-
-const STATUS: { id: BookStatus; label: string }[] = [
-  { id: "currently_reading", label: "Reading" },
-  { id: "want_to_read", label: "Want" },
-  { id: "completed", label: "Done" },
-];
+import { cn, formatDateTime, relativeTime } from "@/lib/utils";
+import { formatUnitMark, nowStatusLabel, parseTitleKind } from "@/lib/media";
+import { memberCanAccessBook } from "@/lib/types";
 
 export function BookDetailScreen({ bookId }: { bookId: string }) {
   const router = useRouter();
@@ -32,9 +30,12 @@ export function BookDetailScreen({ bookId }: { bookId: string }) {
   const progress = useSessionStore((s) => s.progress);
   const profile = useSessionStore((s) => s.profile);
   const buddy = useSessionStore((s) => s.buddy);
+  const members = useSessionStore((s) => s.members);
   const setStatus = useSessionStore((s) => s.setBookStatus);
   const updateBook = useSessionStore((s) => s.updateBook);
   const removeBook = useSessionStore((s) => s.removeBook);
+  const markNotesRead = useSessionStore((s) => s.markNotesRead);
+  const [readList, setReadList] = useState<{ name: string }[] | null>(null);
 
   const book = useMemo(() => books.find((b) => b.id === bookId), [books, bookId]);
   const notes = useMemo(
@@ -54,6 +55,10 @@ export function BookDetailScreen({ bookId }: { bookId: string }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    void markNotesRead(bookId);
+  }, [bookId, markNotesRead, notesAll.length]);
+
   const persistCover = useCallback(
     (url: string) => {
       void updateBook(bookId, { coverUrl: url });
@@ -64,7 +69,7 @@ export function BookDetailScreen({ bookId }: { bookId: string }) {
   if (!profile) {
     return (
       <div className="py-20 text-center">
-        <p className="text-muted">Sign in to open this book.</p>
+        <p className="text-muted">Sign in to open this title.</p>
       </div>
     );
   }
@@ -119,48 +124,68 @@ export function BookDetailScreen({ bookId }: { bookId: string }) {
         </Link>
       </div>
 
-      <div className="glass flex gap-4 rounded-3xl p-4">
-        <BookCover
-          title={book.title}
-          author={book.author}
-          coverUrl={book.coverUrl}
-          onResolved={persistCover}
-          className="h-44 w-28 shrink-0 rounded-2xl"
-        />
-        <div className="min-w-0 flex-1">
-          <BidiText as="h1" className="font-display text-2xl leading-tight">
-            {book.title}
-          </BidiText>
-          <BidiText as="p" className="mt-1 text-sm text-muted">
-            {book.author}
-          </BidiText>
-          <p className="mt-3 text-xs uppercase tracking-wider text-accent">
-            {book.status.replaceAll("_", " ")}
-          </p>
-          {addedByBuddy ? (
-            <p className="mt-2 text-[11px] text-muted">Added by {buddy?.displayName}</p>
-          ) : null}
+      <div className="glass rounded-3xl p-4">
+        <div className="flex gap-4">
+          <BookCover
+            title={book.title}
+            author={book.author}
+            coverUrl={book.coverUrl}
+            onResolved={persistCover}
+            className="h-44 w-28 shrink-0 rounded-2xl"
+          />
+          <div className="min-w-0 flex-1">
+            <BidiText as="h1" className="font-display text-2xl leading-tight">
+              {book.title}
+            </BidiText>
+            <BidiText as="p" className="mt-1 text-sm text-muted">
+              {book.author}
+            </BidiText>
+            <p className="mt-3 text-xs uppercase tracking-wider text-accent">
+              {nowStatusLabel(parseTitleKind(book.kind))}
+            </p>
+            {addedByBuddy ? (
+              <p className="mt-2 text-[11px] text-muted">Added by {personName(buddy)}</p>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-4 gap-1 border-t border-line pt-3">
+          <button
+            type="button"
+            className="flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium text-cream hover:bg-white/8"
+            onClick={() => setEditing(true)}
+          >
+            <Pencil size={18} />
+            Edit
+          </button>
+          <button
+            type="button"
+            className="flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium text-cream hover:bg-white/8"
+            onClick={() => void leaveBook()}
+          >
+            <DoorOpen size={18} />
+            Leave
+          </button>
+          <ShareBookButton
+            bookId={book.id}
+            title={book.title}
+            kind={parseTitleKind(book.kind)}
+            iconLabel
+          />
+          <button
+            type="button"
+            className="flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium text-accent hover:bg-white/8"
+            onClick={() => setConfirmRemove(true)}
+          >
+            <Trash2 size={18} />
+            Remove
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Button variant="secondary" onClick={() => setEditing(true)}>
-          <Pencil size={16} />
-          Edit
-        </Button>
-        <Button variant="secondary" onClick={() => void leaveBook()}>
-          Leave book
-        </Button>
-      </div>
-      <Button variant="ghost" className="w-full text-accent" onClick={() => setConfirmRemove(true)}>
-        <Trash2 size={16} />
-        {addedByBuddy ? "Remove from our shelf" : "Remove this book"}
-      </Button>
-
-      <ShareBookButton bookId={book.id} title={book.title} />
+      <TitlePeoplePanel book={book} />
       <p className="text-center text-xs text-muted">
         {buddy
-          ? `Connected with ${buddy.displayName} — their bar moves when they turn a page.`
+          ? `Connected with ${personName(buddy)} — their bar moves when they turn a page.`
           : "Not connected yet. Share this book; when they join, both bars stay in sync."}
       </p>
 
@@ -168,30 +193,41 @@ export function BookDetailScreen({ bookId }: { bookId: string }) {
         mine={myPage}
         theirs={theirPage}
         total={book.totalPages}
-        myName={profile.displayName}
-        theirName={buddy?.displayName ?? "Buddy"}
+        myName={personName(profile)}
+        theirName={personName(buddy, "Buddy")}
       />
       <LeadIndicator
         myPage={myPage}
         theirPage={theirPage}
-        myName={profile.displayName}
-        theirName={buddy?.displayName ?? "Buddy"}
+        myName={personName(profile)}
+        theirName={personName(buddy, "Buddy")}
       />
-      <PageCounter bookId={book.id} totalPages={book.totalPages} currentPage={myPage} />
+      <PageCounter
+        bookId={book.id}
+        totalPages={book.totalPages}
+        currentPage={myPage}
+        kind={parseTitleKind(book.kind)}
+      />
       <ReactionBar bookId={book.id} page={myPage} />
 
       <div className="grid grid-cols-3 gap-2">
-        {STATUS.map((item) => (
+        {(
+          [
+            ["currently_reading", nowStatusLabel(parseTitleKind(book.kind))],
+            ["want_to_read", "Want"],
+            ["completed", "Done"],
+          ] as const
+        ).map(([id, label]) => (
           <button
-            key={item.id}
+            key={id}
             type="button"
             className={cn(
               "touch-target rounded-2xl py-2.5 text-xs font-medium",
-              book.status === item.id ? "bg-brand text-white" : "bg-white/5 text-muted",
+              book.status === id ? "bg-brand text-white" : "bg-white/5 text-muted",
             )}
-            onClick={() => void setStatus(book.id, item.id)}
+            onClick={() => void setStatus(book.id, id)}
           >
-            {item.label}
+            {label}
           </button>
         ))}
       </div>
@@ -202,13 +238,55 @@ export function BookDetailScreen({ bookId }: { bookId: string }) {
           <p className="text-sm text-muted">None yet — leave a spoiler-free breadcrumb.</p>
         ) : (
           <ul className="space-y-2">
-            {notes.map((n) => (
-              <li key={n.id} dir="auto" className="pm-bidi rounded-2xl bg-white/4 px-3 py-2 text-sm">
-                <span className="text-muted">p.{n.pageNumber}</span>{" "}
-                {n.emoji} {n.note}
-                <span className="ml-2 text-[11px] text-muted">{relativeTime(n.createdAt)}</span>
-              </li>
-            ))}
+            {notes.map((n) => {
+              const authorProfile =
+                n.userId === profile?.id
+                  ? profile
+                  : members.find((m) => m.userId === n.userId)?.profile ??
+                    (buddy?.id === n.userId ? buddy : null);
+              const author = n.userId === profile?.id ? "You" : personName(authorProfile, "Someone");
+              const when = formatDateTime(n.createdAt);
+              const readers = members.filter(
+                (m) => m.userId !== n.userId && memberCanAccessBook(m, book.id),
+              );
+              const readBy = n.readBy ?? [];
+              const readSet = new Set(readBy.map((r) => r.userId));
+              const readCount = readers.filter((m) => readSet.has(m.userId)).length;
+              const mine = n.userId === profile?.id;
+              return (
+                <li key={n.id} dir="auto" className="pm-bidi rounded-2xl bg-white/4 px-3 py-2 text-sm">
+                  <p className="text-cream/90">
+                    {n.emoji ? `${n.emoji} ` : null}
+                    {n.note || "Reaction"}
+                  </p>
+                  <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted">
+                    <p>
+                      {author}
+                      {` · ${formatUnitMark(parseTitleKind(book.kind), n.pageNumber)}`}
+                      {when ? ` · ${when}` : ""}
+                      {` · ${relativeTime(n.createdAt)}`}
+                    </p>
+                    <NoteReadTicks
+                      mine={mine}
+                      readCount={readCount}
+                      readerNames={readers
+                        .filter((m) => readSet.has(m.userId))
+                        .map((m) => personName(m.profile, "Someone"))}
+                      onOpen={() =>
+                        setReadList(
+                          readBy.map((r) => ({
+                            name: personName(
+                              members.find((m) => m.userId === r.userId)?.profile,
+                              "Someone",
+                            ),
+                          })),
+                        )
+                      }
+                    />
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
@@ -216,9 +294,8 @@ export function BookDetailScreen({ bookId }: { bookId: string }) {
       <EditBookModal book={book} open={editing} onClose={() => setEditing(false)} />
       <Modal open={confirmRemove} onClose={() => setConfirmRemove(false)} title="Remove this book?">
         <p className="text-sm text-muted">
-          This takes the title off the shared shelf for both of you. To leave the
-          pair entirely, use Settings. To keep the book but stop reading it, tap
-          Leave book instead.
+          This takes the title off the shared shelf for everyone who shares it. To keep the
+          book but stop reading it, tap Leave instead.
         </p>
         <div className="mt-5 flex gap-2">
           <Button variant="secondary" className="flex-1" onClick={() => setConfirmRemove(false)}>
@@ -228,6 +305,19 @@ export function BookDetailScreen({ bookId }: { bookId: string }) {
             {busy ? "Removing…" : "Remove"}
           </Button>
         </div>
+      </Modal>
+      <Modal open={Boolean(readList)} onClose={() => setReadList(null)} title="Read by">
+        {readList && readList.length === 0 ? (
+          <p className="text-sm text-muted">Nobody has opened this yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {(readList ?? []).map((r, i) => (
+              <li key={`${r.name}-${i}`} className="text-sm text-cream" dir="auto">
+                {r.name}
+              </li>
+            ))}
+          </ul>
+        )}
       </Modal>
     </div>
   );

@@ -8,7 +8,7 @@
  *  - message SKIP_WAITING: update modal orchestration
  */
 
-const CACHE_VERSION = "bookmate-v9";
+const CACHE_VERSION = "bookmate-v10";
 const PRECACHE = [
   "/offline",
   "/offline.html",
