@@ -55,12 +55,18 @@ export function JoinCapture({
       void joinRoom(clean, pendingBook)
         .then(() => goAfterJoin(router, pendingBook))
         .catch((err) => {
+          // Don't redirect to the book on failure (e.g. the room is full, or
+          // the code is stale) — that silently opens a "Book not found"
+          // page and makes a real error (like a full room) look like a
+          // broken link. Clear the pending state and send them home with
+          // the real reason instead.
+          takePendingBookId();
           useToastStore.getState().push({
             title: "Couldn’t join",
-            body: err instanceof Error ? err.message : "Check the invite.",
+            body: err instanceof Error ? err.message : "Check the invite and try again.",
             tone: "warn",
           });
-          goAfterJoin(router, pendingBook);
+          router.replace("/");
         });
       return;
     }
@@ -86,6 +92,7 @@ export function JoinCapture({
         goAfterJoin(router, opened);
       })
       .catch((err) => {
+        takePendingBookId();
         useToastStore.getState().push({
           title: "Couldn’t join",
           body: err instanceof Error ? err.message : "Check the invite and try again.",
