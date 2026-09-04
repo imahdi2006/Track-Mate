@@ -62,7 +62,11 @@ So: **push the code, do not replace the database.**
 
 Generate VAPID locally: `npm run vapid`. Keep the **same** VAPID keys if devices are already subscribed.
 
-3. **Node.js version: `22.x`** (Project → Settings → General). Do **not** use `24.x` — Vercel then logs `Node.js version changed from "24.x" to ""` and the build dies in a couple of seconds. Do **not** add a `NODE_VERSION` env var (an empty one does the same). This repo pins `engines.node` to `22.x` and ships `.nvmrc`.
+3. **Node.js version (this is a dashboard setting, not only git):**
+   - **Settings → Environment Variables:** if `NODE_VERSION` exists (even blank), **delete it**. An empty value is why logs show `changed from "24.x" to ""`.
+   - **Settings → Build and Deployment → Node.js Version:** set **22.x** (not 24.x).
+   - Redeploy with **Use existing Build Cache** unchecked.
+   - `package.json` `engines.node` is `22.x`. Do not add `.nvmrc` with a bare `22` — Vercel can treat that as an empty version.
 4. Deploy. Framework preset: Next.js.
 5. Later updates: commit, then `git push origin main`. Vercel builds that commit. Users stay in Supabase.
 

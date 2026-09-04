@@ -20,6 +20,6 @@ Product name is **Trackmate**. Dark-first PWA with a light theme toggle.
 - **Search:** Home + Library match title, creator, and kind. Library has an All tab.
 - **Name:** User asked for suggestions before a further rebrand. Current shipping name is **Trackmate**. Recommended alternatives: **Shelfmate**, **Pace**, **Along**.
 
-- **Vercel build failed** on `2e1c599` in ~2s: `Node.js version changed from "24.x" to ""`. Next.js 15 wants Node **22.x**. Repo now pins `engines.node` / `.nvmrc` / deploy docs. Dashboard must also be set to 22.x (no empty `NODE_VERSION` env).
+- **Vercel still fails in ~2s** (`7224dd3` too): `24.x` → `""`. Repo pin alone is not enough. Likely an empty `NODE_VERSION` env var on the Vercel project, and/or `.nvmrc` with bare `22` (removed). Dashboard must be **22.x** and `NODE_VERSION` must not exist as an env var.
 
 **Next:** Set Vercel Node to 22.x and redeploy. User picks a product name if Trackmate is not final. Run `0005` and `0006` on the existing Supabase project. Commit + push only when asked. Do not reset the DB.
