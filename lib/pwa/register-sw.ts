@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (typeof window === "undefined" || !("serviceWorker" in navigator))
@@ -15,7 +15,7 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     }
     return reg;
   } catch (err) {
-    console.warn("[BookMate] service worker registration failed", err);
+    console.warn("[Trackmate] service worker registration failed", err);
     return null;
   }
 }

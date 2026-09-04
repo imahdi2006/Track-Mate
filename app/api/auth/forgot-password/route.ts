@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import { localApiUnavailable } from "@/lib/auth/local-api-guard";
 import { rateLimit } from "@/lib/auth/rate-limit";
 import { sendPasswordResetEmail } from "@/lib/auth/resend";
@@ -7,7 +7,7 @@ import { findUser, issueResetToken } from "@/lib/auth/server-store";
 export const runtime = "nodejs";
 
 const GENERIC =
-  "If that email has a BookMate account, a reset link is on its way. Check Gmail and spam.";
+  "If that email has a Trackmate account, a reset link is on its way. Check Gmail and spam.";
 
 function buildOrigin(request: Request, bodyOrigin?: string): string {
   return (

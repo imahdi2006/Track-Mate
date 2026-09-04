@@ -1,16 +1,22 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BookOpen, Plus } from "lucide-react";
+import { BookOpen, Plus, Search } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AddBookModal } from "@/components/library/AddBookModal";
 import { BookCard } from "@/components/library/BookCard";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
 import type { BookStatus } from "@/lib/types";
+import { personName } from "@/lib/names";
+import { matchesShelfQuery } from "@/lib/search";
 import { useSessionStore } from "@/lib/store/session-store";
 
-const TABS: { id: BookStatus; label: string }[] = [
+type ShelfTab = "all" | BookStatus;
+
+const TABS: { id: ShelfTab; label: string }[] = [
+  { id: "all", label: "All" },
   { id: "currently_reading", label: "Now" },
   { id: "want_to_read", label: "Want" },
   { id: "completed", label: "Done" },
@@ -20,14 +26,23 @@ export function LibraryScreen() {
   const books = useSessionStore((s) => s.books);
   const progress = useSessionStore((s) => s.progress);
   const profile = useSessionStore((s) => s.profile)!;
-  const buddy = useSessionStore((s) => s.buddy);
-  const [tab, setTab] = useState<BookStatus>("currently_reading");
+  const members = useSessionStore((s) => s.members);
+  const [tab, setTab] = useState<ShelfTab>("all");
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
 
-  const filtered = useMemo(
-    () => books.filter((b) => b.status === tab),
-    [books, tab],
+  const others = useMemo(
+    () => members.filter((m) => m.userId !== profile.id && m.profile),
+    [members, profile.id],
   );
+  const buddy = others[0]?.profile ?? null;
+
+  const filtered = useMemo(() => {
+    return books.filter((b) => {
+      if (tab !== "all" && b.status !== tab) return false;
+      return matchesShelfQuery(b, query);
+    });
+  }, [books, tab, query]);
 
   return (
     <div className="space-y-4">
@@ -65,6 +80,17 @@ export function LibraryScreen() {
         ))}
       </div>
 
+      <label className="relative block">
+        <Search size={16} className="absolute top-4 left-3 text-muted" />
+        <Input
+          className="pl-9"
+          dir="auto"
+          placeholder="Search title, creator, or kind (book, series…)"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </label>
+
       <AnimatePresence mode="wait">
         <motion.div
           key={tab}
@@ -74,7 +100,9 @@ export function LibraryScreen() {
           className="grid gap-3"
         >
           {filtered.length === 0 ? (
-            <p className="py-12 text-center text-sm text-muted">Nothing here yet.</p>
+            <p className="py-12 text-center text-sm text-muted">
+              {query.trim() ? "No match on this shelf." : "Nothing here yet."}
+            </p>
           ) : (
             filtered.map((book) => (
               <BookCard
@@ -90,6 +118,8 @@ export function LibraryScreen() {
                         ?.currentPage ?? 0
                     : 0
                 }
+                theirName={buddy ? personName(buddy) : "Buddy"}
+                otherCount={Math.max(0, others.length - 1)}
               />
             ))
           )}

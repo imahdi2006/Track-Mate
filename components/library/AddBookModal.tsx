@@ -14,6 +14,7 @@ import { fetchSeriesSeasons, type CatalogHit, type SeriesSeason } from "@/lib/ca
 import {
   creatorLabel,
   defaultTotalUnits,
+  catalogHint,
   kindNoun,
   kindNounPlural,
   unitNoun,
@@ -156,6 +157,9 @@ export function AddBookModal({
               onChange={(e) => setQuery(e.target.value)}
             />
           </label>
+          {query.trim().length < 2 ? (
+            <p className="text-[11px] text-muted">{catalogHint(kind)}</p>
+          ) : null}
           <CatalogPicker kind={kind} query={query} onApprove={(hit) => void approve(hit)} />
           {busy && step === "search" ? (
             <p className="text-center text-xs text-muted">Loading seasons…</p>

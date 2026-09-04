@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Search } from "lucide-react";
-import { BookMateLogo } from "@/components/branding/BookMateLogo";
+import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
 import { ActiveBookCard } from "@/components/dashboard/ActiveBookCard";
 import { ActivityFeed } from "@/components/activity/ActivityFeed";
 import { BookCard } from "@/components/library/BookCard";
@@ -11,6 +11,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Input } from "@/components/ui/Input";
 import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
 import { personName } from "@/lib/names";
+import { matchesShelfQuery } from "@/lib/search";
 import { useSessionStore } from "@/lib/store/session-store";
 import type { BookStatus } from "@/lib/types";
 
@@ -48,11 +49,7 @@ export function DashboardScreen() {
     const q = query.trim().toLowerCase();
     return books.filter((b) => {
       if (filter !== "all" && b.status !== filter) return false;
-      if (!q) return true;
-      return (
-        b.title.toLowerCase().includes(q) ||
-        b.author.toLowerCase().includes(q)
-      );
+      return matchesShelfQuery(b, q);
     });
   }, [books, filter, query]);
 
@@ -80,7 +77,7 @@ export function DashboardScreen() {
   return (
     <div className="space-y-5">
       <header className="flex items-center justify-between">
-        <BookMateLogo size={34} withWordmark />
+        <TrackmateLogo size={34} withWordmark />
         <div className="flex items-center gap-3">
           <ThemeSwitch />
           <div className="flex items-center -space-x-2">
@@ -108,7 +105,7 @@ export function DashboardScreen() {
             href="/library"
             className="mt-4 inline-flex h-11 items-center rounded-2xl bg-brand px-4 text-sm font-medium"
           >
-            Add a book
+            Add a title
           </Link>
         </div>
       ) : (
@@ -132,7 +129,7 @@ export function DashboardScreen() {
             <Input
               className="pl-9"
               dir="auto"
-              placeholder="Filter by title or author"
+              placeholder="Search title, creator, or kind"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -160,7 +157,13 @@ export function DashboardScreen() {
                         {STATUS_LABEL[book.status]}
                       </p>
                     ) : null}
-                    <BookCard book={book} myPage={pages.mine} theirPage={pages.theirs} />
+                    <BookCard
+                      book={book}
+                      myPage={pages.mine}
+                      theirPage={pages.theirs}
+                      theirName={buddy ? personName(buddy) : "Buddy"}
+                      otherCount={Math.max(0, others.length - 1)}
+                    />
                   </li>
                 );
               })}

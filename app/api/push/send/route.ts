@@ -1,7 +1,9 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
 import webpush from "web-push";
 import { PUSH_THROTTLE_MS, isSupabaseConfigured } from "@/lib/config";
+import { formatUnitMark, parseTitleKind } from "@/lib/media";
 import { getSupabaseServiceClient } from "@/lib/supabase/server";
+import type { TitleKind } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -10,7 +12,7 @@ const lastSent = new Map<string, number>();
 function configureVapid() {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT ?? "mailto:hello@BookMate.app";
+  const subject = process.env.VAPID_SUBJECT ?? "mailto:hello@Trackmate.app";
   if (!publicKey || !privateKey) return false;
   webpush.setVapidDetails(subject, publicKey, privateKey);
   return true;
@@ -21,6 +23,7 @@ type Body = {
   bookId?: string;
   page?: number;
   bookTitle?: string;
+  kind?: TitleKind;
   emoji?: string;
   note?: string;
   actorId?: string;
@@ -30,28 +33,40 @@ type Body = {
 };
 
 function composeMessage(body: Body, name: string): string {
-  const title = body.bookTitle ?? "your book";
-  if (body.event === "test") return "Push is on. You’ll get a ping when someone in the room turns a page.";
+  const title = body.bookTitle ?? "your title";
+  const kind = parseTitleKind(body.kind);
+  const mark = formatUnitMark(kind, body.page ?? 0);
+  if (body.event === "test") {
+    return "Push is on. You’ll get a ping when someone in the room moves ahead.";
+  }
   if (body.event === "reaction") {
-    return `${name} reacted ${body.emoji ?? "👏"} on page ${body.page} of '${title}'`;
+    return `${name} reacted ${body.emoji ?? "👏"} at ${mark} of ‘${title}’`;
   }
   if (body.event === "note") {
-    return `${name} left a note on page ${body.page} of '${title}'`;
+    return `${name} left a note at ${mark} of ‘${title}’`;
   }
-  return `🔥 ${name} just reached page ${body.page} of '${title}'! Catch up!`;
+  return `${name} just reached ${mark} of ‘${title}’. Catch up!`;
 }
 
+/**
+ * Push endpoints go permanently dead (uninstalled PWA, cleared site data,
+ * unsubscribed elsewhere) and the browser returns 404/410 for those. If we
+ * never prune them, every future send keeps silently failing against the
+ * same dead row forever — one of the main reasons notifications "sometimes
+ * don't arrive". Report which endpoints are gone so the caller can delete
+ * them.
+ */
 async function deliver(
   subs: { endpoint: string; p256dh: string; auth: string }[],
   message: string,
   bookId?: string,
-): Promise<number> {
+): Promise<{ sent: number; gone: string[] }> {
   const payload = JSON.stringify({
-    title: "BookMate",
+    title: "Trackmate",
     body: message,
     bookId,
     url: bookId ? `/book/${bookId}` : "/",
-    tag: `bookmate-${bookId ?? "feed"}`,
+    tag: `Trackmate-${bookId ?? "feed"}`,
   });
   const results = await Promise.allSettled(
     subs.map((sub) =>
@@ -64,7 +79,19 @@ async function deliver(
       ),
     ),
   );
-  return results.filter((r) => r.status === "fulfilled").length;
+  const gone: string[] = [];
+  let sent = 0;
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled") {
+      sent += 1;
+      return;
+    }
+    const statusCode = (r.reason as { statusCode?: number } | undefined)?.statusCode;
+    if (statusCode === 404 || statusCode === 410) {
+      gone.push(subs[i]!.endpoint);
+    }
+  });
+  return { sent, gone };
 }
 
 export async function POST(request: Request) {
@@ -102,7 +129,11 @@ export async function POST(request: Request) {
     if (!targets.length) {
       return NextResponse.json({ ok: false, reason: "no_subscription" }, { status: 200 });
     }
-    const sent = await deliver(targets, composeMessage(body, name), body.bookId);
+    const { sent, gone } = await deliver(targets, composeMessage(body, name), body.bookId);
+    if (gone.length) {
+      const { replacePushSubscriptionEverywhere } = await import("@/lib/auth/pair-store");
+      await Promise.all(gone.map((endpoint) => replacePushSubscriptionEverywhere(endpoint, null)));
+    }
     return NextResponse.json({ ok: true, sent, mode: "local" });
   }
 
@@ -153,14 +184,29 @@ export async function POST(request: Request) {
 
   const { data: memberRows } = await sb
     .from("room_members")
-    .select("user_id")
+    .select("user_id, role, shelf_scope")
     .eq("room_id", roomId);
-  const targetIds =
+  let targetIds =
     body.event === "test"
       ? [actorId]
       : (memberRows ?? [])
           .map((m) => String(m.user_id))
           .filter((id) => id !== actorId);
+
+  // Book-scoped invites: only ping people who can actually open that title.
+  if (body.event !== "test" && body.bookId && targetIds.length) {
+    const allowed = new Set<string>();
+    for (const m of memberRows ?? []) {
+      const id = String(m.user_id);
+      if (m.role === "owner" || m.shelf_scope === "all") allowed.add(id);
+    }
+    const { data: access } = await sb
+      .from("book_access")
+      .select("user_id")
+      .eq("book_id", body.bookId);
+    for (const row of access ?? []) allowed.add(String(row.user_id));
+    targetIds = targetIds.filter((id) => allowed.has(id));
+  }
 
   if (!targetIds.length) {
     return NextResponse.json({ ok: true, skipped: "no_targets" });
@@ -191,6 +237,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, reason: "no_subscription" }, { status: 200 });
   }
 
-  const sent = await deliver(targets, composeMessage(body, name), body.bookId);
+  const { sent, gone } = await deliver(targets, composeMessage(body, name), body.bookId);
+  if (gone.length) {
+    await sb.from("push_subscriptions").delete().in("endpoint", gone);
+  }
   return NextResponse.json({ ok: true, sent, mode: "supabase" });
 }

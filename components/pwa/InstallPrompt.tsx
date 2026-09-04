@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import { Share, Plus, MoreHorizontal } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookMateLogo } from "@/components/branding/BookMateLogo";
+import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
 import { Button } from "@/components/ui/Button";
 import { usePWAInstall } from "@/hooks/usePWAInstall";
 
@@ -28,9 +28,9 @@ export function InstallPrompt() {
         >
           <div className="mx-auto max-w-lg glass-strong rounded-3xl p-4 shadow-glass">
             <div className="flex items-start gap-3">
-              <BookMateLogo size={40} />
+              <TrackmateLogo size={40} />
               <div className="min-w-0 flex-1">
-                <p className="font-display text-lg text-cream">Install BookMate</p>
+                <p className="font-display text-lg text-cream">Install Trackmate</p>
                 <p className="text-sm text-muted">
                   {showIosGuide
                     ? "Add it to your Home Screen so push and full-screen reading work on iPhone."
@@ -65,7 +65,7 @@ export function InstallPrompt() {
             <div className="mt-4 flex gap-2">
               {canNativePrompt ? (
                 <Button className="flex-1" onClick={() => void promptInstall()}>
-                  Install BookMate
+                  Install Trackmate
                 </Button>
               ) : showIosGuide ? (
                 <Button className="flex-1" variant="secondary" onClick={dismiss}>

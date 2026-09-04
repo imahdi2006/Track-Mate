@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookMateLogo } from "@/components/branding/BookMateLogo";
+import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
 import { LoadingScreen } from "@/components/ui/Loader";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -67,7 +67,7 @@ function ResetPasswordForm() {
     <div className="mx-auto flex min-h-dvh max-w-lg flex-col justify-center px-5 py-10">
       <div className="glass rounded-3xl p-6">
         <div className="flex items-start justify-between gap-3">
-          <BookMateLogo size={44} withWordmark />
+          <TrackmateLogo size={44} withWordmark />
           <ThemeSwitch />
         </div>
         <h1 className="font-display mt-5 text-2xl text-cream">New password</h1>

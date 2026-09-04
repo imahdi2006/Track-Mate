@@ -1,7 +1,7 @@
 import { APP_NAME } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
-type BookMateLogoProps = {
+type TrackmateLogoProps = {
   size?: number;
   className?: string;
   withWordmark?: boolean;
@@ -10,14 +10,14 @@ type BookMateLogoProps = {
 
 /**
  * Two overlapping open-book leaves that form a soft infinity loop.
- * Indigo (you) + Amber (buddy) share a single spine — two mates, one book.
+ * Indigo (you) + Amber (buddy) share a single spine — two mates, tracking together.
  */
-export function BookMateLogo({
+export function TrackmateLogo({
   size = 40,
   className,
   withWordmark = false,
   wordmarkClassName,
-}: BookMateLogoProps) {
+}: TrackmateLogoProps) {
   return (
     <span className={cn("inline-flex items-center gap-2.5", className)}>
       <svg
@@ -129,4 +129,4 @@ export function BookMateLogo({
   );
 }
 
-export default BookMateLogo;
+export default TrackmateLogo;

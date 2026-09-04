@@ -1,5 +1,7 @@
-export const APP_NAME = "BookMate";
+export const APP_NAME = "Trackmate";
 export const APP_TAGLINE = "Read, watch, and learn together.";
+export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "1.0.0";
+export const BUG_REPORT_EMAIL = "mahdi.mahdi1385631@gmail.com";
 
 export const GITHUB_URL =
   process.env.NEXT_PUBLIC_GITHUB_URL ?? "https://github.com/imahdi2006/Page-Mate";

@@ -1,4 +1,4 @@
-import { APP_NAME } from "@/lib/config";
+﻿import { APP_NAME } from "@/lib/config";
 
 export function isResendConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY);
@@ -13,7 +13,7 @@ export async function sendPasswordResetEmail(input: {
     return { ok: false, message: "Resend is not configured." };
   }
 
-  const from = process.env.RESEND_FROM || "BookMate <beth.t@example.com>";
+  const from = process.env.RESEND_FROM || "Trackmate <beth.t@example.com>";
 
   const html = `
     <div style="font-family:Georgia,serif;background:#0F172A;color:#F5F0E8;padding:32px;border-radius:16px">
@@ -22,7 +22,7 @@ export async function sendPasswordResetEmail(input: {
       </p>
       <h1 style="font-size:28px;margin:0 0 12px">Reset your password</h1>
       <p style="color:#94A3B8;line-height:1.5">
-        Someone asked to reset the BookMate password for this email.
+        Someone asked to reset the Trackmate password for this email.
         The link expires in one hour.
       </p>
       <p style="margin:28px 0">

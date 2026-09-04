@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type { RealtimeChannel, SupabaseClient, User } from "@supabase/supabase-js";
 import { EmailConfirmationRequired } from "@/lib/auth/errors";
@@ -10,7 +10,7 @@ import type {
   BookStatus,
   CreateRoomInput,
   MicroNote,
-  BookMateSnapshot,
+  TrackmateSnapshot,
   Profile,
   ReadingRoom,
   RoomMember,
@@ -150,7 +150,7 @@ async function fetchSnapshot(
   sb: SupabaseClient,
   userId: string,
   preferredRoomId?: string | null,
-): Promise<BookMateSnapshot> {
+): Promise<TrackmateSnapshot> {
   const { data: profileRow } = await sb
     .from("profiles")
     .select("*")
@@ -459,7 +459,7 @@ export function createSupabaseAdapter(
       if (error) throw error;
       return {
         emailed: true,
-        message: "Check your email for a BookMate reset link. It expires soon.",
+        message: "Check your email for a Trackmate reset link. It expires soon.",
       };
     },
 
@@ -880,7 +880,7 @@ export function createSupabaseAdapter(
       if (!userId || !roomId) return;
       const { data: book } = await sb
         .from("books")
-        .select("title, total_pages, status")
+        .select("title, total_pages, status, kind")
         .eq("id", bookId)
         .single();
       const total = Number(book?.total_pages ?? page);
@@ -946,6 +946,7 @@ export function createSupabaseAdapter(
         bookId,
         page: clamped,
         bookTitle: book?.title,
+        kind: book?.kind,
         actorId: userId,
         roomId,
         inviteCode: undefined,
@@ -980,12 +981,19 @@ export function createSupabaseAdapter(
           page: input.pageNumber,
         },
       });
+      const { data: noteBook } = await sb
+        .from("books")
+        .select("title, kind")
+        .eq("id", input.bookId)
+        .maybeSingle();
       await sendPush(sb, {
         event: input.emoji && !input.note ? "reaction" : "note",
         bookId: input.bookId,
         page: input.pageNumber,
         emoji: input.emoji,
         note: input.note,
+        bookTitle: noteBook?.title,
+        kind: noteBook?.kind,
         actorId: userId,
         roomId,
       });
@@ -1048,7 +1056,7 @@ export function createSupabaseAdapter(
         return () => listeners.delete(onChange);
       }
       channel = sb
-        .channel("bookmate-realtime")
+        .channel("Trackmate-realtime")
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "reading_progress" },

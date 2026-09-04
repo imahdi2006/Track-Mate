@@ -54,7 +54,7 @@ export function CatalogPicker({
     <div className="mt-2">
       {searching ? <p className="text-xs text-muted">Finding covers…</p> : null}
       {hits.length > 0 ? (
-        <ul className="mt-1 max-h-56 space-y-1 overflow-y-auto">
+        <ul className="mt-1 max-h-72 space-y-1 overflow-y-auto">
           {hits.map((hit) => (
             <li key={hit.id}>
               <button

@@ -1,4 +1,4 @@
--- BookMate rooms (multi-member, max 5). Apply after 0001_init.sql.
+-- Trackmate rooms (multi-member, max 5). Apply after 0001_init.sql.
 -- Replaces reading_pairs (user_a / user_b) with reading_rooms + room_members.
 
 -- ---------------------------------------------------------------------------

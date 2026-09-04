@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Rocket } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -24,7 +24,7 @@ export function UpdateToast() {
             <div className="min-w-0 flex-1">
               <p className="text-sm font-semibold text-cream">Update available</p>
               <p className="text-xs text-muted">
-                Your account stays. Tap to load the new BookMate on this device.
+                Your account stays. Tap to load the new Trackmate on this device.
               </p>
             </div>
             <Button size="sm" onClick={applyUpdate}>

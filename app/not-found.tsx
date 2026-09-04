@@ -1,20 +1,20 @@
-﻿import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
-import Link from "next/link";
+﻿import Link from "next/link";
+import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
 
-export default function OfflinePage() {
+export default function NotFound() {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
       <TrackmateLogo size={56} withWordmark />
-      <h1 className="font-display text-2xl">You&apos;re offline</h1>
+      <h1 className="font-display text-2xl">Page not found</h1>
       <p className="max-w-sm text-sm text-muted">
-        Trackmate will keep your last page turns and replay them when the
-        connection returns.
+        That link is stale, or you no longer have access to this title. Try opening it
+        from Home or Library instead.
       </p>
       <Link
         href="/"
         className="mt-2 inline-flex h-11 items-center rounded-2xl bg-brand px-5 text-sm font-medium"
       >
-        Try again
+        Back to Home
       </Link>
     </div>
   );

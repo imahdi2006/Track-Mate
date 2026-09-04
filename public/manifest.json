@@ -1,8 +1,8 @@
-{
+﻿{
   "id": "/",
-  "name": "BookMate",
-  "short_name": "BookMate",
-  "description": "Two friends. One bookshelf. Real-time shared reading progress.",
+  "name": "Trackmate",
+  "short_name": "Trackmate",
+  "description": "Track books, courses, movies, and series with your reading room — in real time.",
   "lang": "en",
   "dir": "ltr",
   "start_url": "/",
@@ -11,7 +11,7 @@
   "orientation": "portrait-primary",
   "background_color": "#0F172A",
   "theme_color": "#0F172A",
-  "categories": ["books", "lifestyle", "social"],
+  "categories": ["books", "entertainment", "education", "lifestyle", "social"],
   "icons": [
     {
       "src": "/icons/icon.svg",

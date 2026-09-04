@@ -1,4 +1,4 @@
-# Progress
+﻿# Progress
 
 ## Working
 - Supabase Auth path (signup / signin / reset) when `NEXT_PUBLIC_SUPABASE_*` set
@@ -24,6 +24,8 @@
 - Local SQLite `/api/auth/*` and `/api/pairs/*` return 501 when Supabase configured
 - PWA install + push copy updated for HTTPS requirement
 - Deploy guide: `docs/VERCEL_DEPLOY.md`
+- Push heal on focus + dead-endpoint prune; Settings Check for updates + Report a bug
+- Home/Library search matches title, creator, and kind; Library All tab
 
 ## Known issues / follow-ups
 - Apply `0001` + `0002` + **`0003`** + **`0004`** + **`0005`** + **`0006`** on Supabase

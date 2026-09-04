@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { KeyRound, Mail, Sparkles } from "lucide-react";
-import { BookMateLogo } from "@/components/branding/BookMateLogo";
+import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -36,7 +36,7 @@ export function AuthScreen() {
     if (new URLSearchParams(window.location.search).get("auth") === "error") {
       useToastStore.getState().push({
         title: "Google sign-in didn’t finish",
-        body: "Approve BookMate in the Google prompt, or use email.",
+        body: "Approve Trackmate in the Google prompt, or use email.",
         tone: "warn",
       });
     }
@@ -123,7 +123,7 @@ export function AuthScreen() {
         className="glass rounded-3xl p-6"
       >
         <div className="flex items-start justify-between gap-3">
-          <BookMateLogo size={52} withWordmark wordmarkClassName="text-2xl" />
+          <TrackmateLogo size={52} withWordmark wordmarkClassName="text-2xl" />
           <ThemeSwitch />
         </div>
         <h1 className="font-display mt-6 text-3xl leading-tight text-cream">
@@ -161,7 +161,7 @@ export function AuthScreen() {
               here. Check spam if you don’t see it within a few minutes.
             </p>
             <p className="text-xs text-muted">
-              That email comes from your BookMate project (Supabase), not from this screen.
+              That email comes from your Trackmate project (Supabase), not from this screen.
               If nothing arrives, wait a bit and try Create account again — this is not a failed signup.
             </p>
             <Button

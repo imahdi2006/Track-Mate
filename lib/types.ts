@@ -1,4 +1,4 @@
-export type BookStatus = "currently_reading" | "want_to_read" | "completed";
+﻿export type BookStatus = "currently_reading" | "want_to_read" | "completed";
 
 /** Shelf item: a book, a course, a movie, or a TV series. Stored on `books.kind`. */
 export type TitleKind = "book" | "course" | "movie" | "series";
@@ -148,7 +148,7 @@ export interface RoomSummary {
   role: RoomMemberRole;
 }
 
-export interface BookMateSnapshot {
+export interface TrackmateSnapshot {
   profile: Profile | null;
   rooms: RoomSummary[];
   room: ReadingRoom | null;
@@ -231,7 +231,7 @@ export type QueuedMutation =
       payload: { bookId: string };
     };
 
-export function emptySnapshot(): BookMateSnapshot {
+export function emptySnapshot(): TrackmateSnapshot {
   return {
     profile: null,
     rooms: [],

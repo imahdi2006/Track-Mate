@@ -1,0 +1,6 @@
+User-agent: *
+Disallow: /api/
+Disallow: /join/
+Disallow: /reset-password
+Disallow: /auth/
+Allow: /

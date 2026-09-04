@@ -82,3 +82,50 @@ export async function findPairDocForProfile(profileId: string): Promise<PairDoc 
   }
   return best;
 }
+
+/**
+ * A push subscription silently rotates (browser-driven, via
+ * `pushsubscriptionchange`) or goes dead (410 Gone on send). Both cases are
+ * keyed by endpoint, not user id, since that's all the service worker or
+ * the send route has on hand. Scan every pair doc for a matching endpoint
+ * and either swap it for the fresh one or drop it.
+ */
+export async function replacePushSubscriptionEverywhere(
+  oldEndpoint: string,
+  next: { endpoint: string; p256dh: string; auth: string; userAgent?: string | null } | null,
+): Promise<boolean> {
+  const database = getDb();
+  const rows = database.prepare("SELECT buddy_code, doc_json FROM pair_docs").all() as {
+    buddy_code: string;
+    doc_json: string;
+  }[];
+  let changed = false;
+  const update = database.prepare(
+    "UPDATE pair_docs SET doc_json = ?, updated_at = ? WHERE buddy_code = ?",
+  );
+  for (const row of rows) {
+    const doc = JSON.parse(row.doc_json) as PairDoc;
+    const subs = doc.pushSubscriptions ?? [];
+    const match = subs.find((s) => s.endpoint === oldEndpoint);
+    if (!match) continue;
+    const rest = subs.filter((s) => s.endpoint !== oldEndpoint);
+    doc.pushSubscriptions = next
+      ? [
+          ...rest,
+          {
+            id: match.id,
+            userId: match.userId,
+            endpoint: next.endpoint,
+            p256dh: next.p256dh,
+            auth: next.auth,
+            userAgent: next.userAgent ?? match.userAgent ?? null,
+            createdAt: match.createdAt,
+          },
+        ]
+      : rest;
+    update.run(JSON.stringify(doc), new Date().toISOString(), row.buddy_code);
+    emitPairDoc(row.buddy_code, doc);
+    changed = true;
+  }
+  return changed;
+}

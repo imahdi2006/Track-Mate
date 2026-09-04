@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { create } from "zustand";
 import { PAGE_DEBOUNCE_MS, isSupabaseConfigured } from "@/lib/config";
@@ -498,7 +498,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         }
         await dequeueMutation(item.id);
       } catch (err) {
-        console.error("[BookMate] replay failed", item, err);
+        console.error("[Trackmate] replay failed", item, err);
         break;
       }
     }

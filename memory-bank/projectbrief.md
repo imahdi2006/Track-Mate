@@ -1,6 +1,6 @@
-# BookMate — project brief
+﻿# Trackmate — project brief
 
-BookMate is a Progressive Web App for a small reading room (2–5 people) to track shared book-reading progress in real time.
+Trackmate is a Progressive Web App for a small reading room (2–5 people) to track shared book-reading progress in real time.
 
 ## Goals
 - Create rooms with a configurable member cap (max 5); owner can kick and delete.

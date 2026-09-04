@@ -1,8 +1,8 @@
-{
-  "name": "bookmate",
+﻿{
+  "name": "trackmate",
   "version": "1.0.0",
   "private": true,
-  "description": "BookMate — a PWA for two readers to track shared book progress in real time.",
+  "description": "Trackmate — a PWA for small groups to track shared books, courses, movies, and series in real time.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

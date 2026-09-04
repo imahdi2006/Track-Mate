@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 /**
  * Per-key debounce + promise mutex.
@@ -29,7 +29,7 @@ export function debounceMutex(
         .catch(() => undefined)
         .then(fn)
         .catch((err) => {
-          console.error(`[BookMate] mutex ${key} failed`, err);
+          console.error(`[Trackmate] mutex ${key} failed`, err);
         });
       tails.set(key, next);
     }, waitMs),

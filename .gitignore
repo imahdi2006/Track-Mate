@@ -1,4 +1,4 @@
-# dependencies
+﻿# dependencies
 /node_modules
 /.pnp
 .pnp.*
@@ -19,7 +19,7 @@
 /build
 /docs/pagemate-architecture.pdf
 /docs/pagesync-architecture.pdf
-/docs/BookMate-architecture.pdf
+/docs/Trackmate-architecture.pdf
 /docs/PageMate-architecture.pdf
 
 # misc

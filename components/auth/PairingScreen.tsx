@@ -1,10 +1,10 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Copy, Link2, Users } from "lucide-react";
-import { BookMateLogo } from "@/components/branding/BookMateLogo";
+import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
 import { LoadingScreen } from "@/components/ui/Loader";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -135,7 +135,7 @@ export function PairingScreen() {
         className="glass rounded-3xl p-6"
       >
         <div className="flex items-start justify-between gap-3">
-          <BookMateLogo size={44} withWordmark />
+          <TrackmateLogo size={44} withWordmark />
           <ThemeSwitch />
         </div>
         <h1 className="font-display mt-5 text-2xl text-cream">Start a reading room</h1>

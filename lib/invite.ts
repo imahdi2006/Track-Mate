@@ -15,7 +15,7 @@ export function parseBookIdFromInvite(raw: string): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   try {
-    const url = new URL(trimmed, "https://bookmate.local");
+    const url = new URL(trimmed, "https://trackmate.local");
     const book = url.searchParams.get("book")?.trim();
     if (book) return book;
   } catch {

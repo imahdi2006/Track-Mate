@@ -10,6 +10,7 @@ export function usePWAUpdate() {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [updateReady, setUpdateReady] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
@@ -49,6 +50,7 @@ export function usePWAUpdate() {
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", checkForUpdate);
+    const interval = window.setInterval(checkForUpdate, 30 * 60 * 1000);
 
     const onControllerChange = () => {
       window.location.reload();
@@ -59,6 +61,7 @@ export function usePWAUpdate() {
       mounted = false;
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", checkForUpdate);
+      window.clearInterval(interval);
       navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
     };
   }, []);
@@ -74,5 +77,25 @@ export function usePWAUpdate() {
 
   const dismiss = useCallback(() => setUpdateReady(false), []);
 
-  return { updateReady, applyUpdate, dismiss, registration };
+  /** Manual "Check for updates" — Settings calls this on demand. */
+  const checkNow = useCallback(async (): Promise<"update-found" | "up-to-date" | "unsupported"> => {
+    if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return "unsupported";
+    setChecking(true);
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) return "unsupported";
+      await reg.update();
+      if (reg.waiting) {
+        setRegistration(reg);
+        setWaitingWorker(reg.waiting);
+        setUpdateReady(true);
+        return "update-found";
+      }
+      return "up-to-date";
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  return { updateReady, applyUpdate, dismiss, registration, checking, checkNow };
 }

@@ -1,4 +1,4 @@
-# Deploy BookMate on Vercel + Supabase
+﻿# Deploy Trackmate on Vercel + Supabase
 
 Production path: **Vercel (HTTPS)** + **Supabase Auth / Postgres / Realtime**.
 Local SQLite APIs stay for offline demo only and return `501` when Supabase env is set.
@@ -38,7 +38,7 @@ So: **push the code, do not replace the database.**
    - Authorized redirect URI (Google Cloud): `https://YOUR_PROJECT.supabase.co/auth/v1/callback`
    - Copy Client ID + Client Secret into Supabase → Authentication → Providers → Google → enable.
    - While the Google app is in **Testing**, add each Gmail as a test user (OAuth consent screen). Until you click **Publish app**, only those test users can sign in with Google.
-4. **Authentication → Providers** (or Auth settings): enable **automatic account linking** / confirm that verified emails from Google attach to the existing email+password user. Same Gmail = same BookMate account.
+4. **Authentication → Providers** (or Auth settings): enable **automatic account linking** / confirm that verified emails from Google attach to the existing email+password user. Same Gmail = same Trackmate account.
 5. **Authentication → URL configuration**:
    - Site URL: `https://YOUR_APP.vercel.app`
    - Redirect URLs: `https://YOUR_APP.vercel.app/**`, `https://YOUR_APP.vercel.app/auth/callback`, and `http://localhost:3000/**`
@@ -79,7 +79,8 @@ Generate VAPID locally: `npm run vapid`. Keep the **same** VAPID keys if devices
 - [ ] Share a title → second user joins via link and **only sees that title**
 - [ ] Room invite without `?book=` still shares the whole shelf (expected; warned in Settings)
 - [ ] Owner deletes room
-- [ ] Settings → Install (HTTPS); enable push; Send test ping
+- [ ] Settings → Install (HTTPS); enable push; Send test ping (should arrive on this device)
+- [ ] Settings → Check for updates; Report a bug opens a short form (email to the project inbox)
 - [ ] Settings shows GitHub / open source (Buy me a coffee is hidden)
 
 ## Notes

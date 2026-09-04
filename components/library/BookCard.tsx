@@ -12,13 +12,20 @@ export function BookCard({
   book,
   myPage,
   theirPage,
+  theirName = "Buddy",
+  otherCount = 0,
 }: {
   book: Book;
   myPage: number;
   theirPage: number;
+  /** Name of the other reader whose progress is shown (falls back to "Buddy"). */
+  theirName?: string;
+  /** Extra room members beyond `theirName` who also share this title. */
+  otherCount?: number;
 }) {
   const mine = percent(myPage, book.totalPages);
   const theirs = percent(theirPage, book.totalPages);
+  const theirLabel = otherCount > 0 ? `${theirName} +${otherCount}` : theirName;
   return (
     <article className="glass flex gap-2 overflow-hidden rounded-2xl p-3 transition hover:border-brand/30">
       <Link href={`/book/${book.id}`} className="flex min-w-0 flex-1 gap-3">
@@ -47,8 +54,8 @@ export function BookCard({
               />
             </div>
           </div>
-          <p className="mt-1.5 text-[11px] text-muted">
-            You {formatUnitMark(parseTitleKind(book.kind), myPage)} · Buddy{" "}
+          <p className="mt-1.5 truncate text-[11px] text-muted">
+            You {formatUnitMark(parseTitleKind(book.kind), myPage)} · {theirLabel}{" "}
             {formatUnitMark(parseTitleKind(book.kind), theirPage)}
           </p>
         </div>

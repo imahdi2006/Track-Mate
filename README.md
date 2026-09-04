@@ -1,4 +1,4 @@
-# BookMate
+﻿# Trackmate
 
 A dark-first, installable PWA for a small reading room (up to **5** people) to track shared books, courses, and movies in real time.
 
@@ -6,7 +6,7 @@ Share **a book**, not the account. When someone turns a page, the room sees it.
 
 ## Open source
 
-BookMate is **free and open source** ([MIT License](./LICENSE)). You can use it, fork it, self-host it, and send pull requests.
+Trackmate is **free and open source** ([MIT License](./LICENSE)). You can use it, fork it, self-host it, and send pull requests.
 
 - Source: [github.com/imahdi2006/Page-Mate](https://github.com/imahdi2006/Page-Mate)
 - Production path: **Vercel + Supabase** (Auth, Postgres, Realtime)
@@ -35,7 +35,7 @@ No env vars required for local demo (SQLite + custom auth). Open the URL Next pr
 
 See [`docs/VERCEL_DEPLOY.md`](./docs/VERCEL_DEPLOY.md). **Git push does not delete accounts.** Users, rooms, and books live in your existing Supabase project.
 
-1. Create a Supabase project (or keep the one you already have). Run `0001` → `0004` in SQL Editor. Do **not** reset the database if people already signed up.
+1. Create a Supabase project (or keep the one you already have). Run `0001` → `0006` in SQL Editor. Do **not** reset the database if people already signed up.
 2. Enable **Email** and **Google** under Authentication → Providers. Turn on **automatic linking** so a Gmail that already has a password account stays the same user.
 3. Set `NEXT_PUBLIC_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_APP_URL`, VAPID keys on Vercel.
 4. `git push origin main`. If the GitHub repo is connected to Vercel, that deploys HTTPS. Auth is **Supabase Auth** (Google or email); rooms/books stay in Postgres.

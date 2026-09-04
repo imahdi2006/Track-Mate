@@ -1,4 +1,4 @@
-# Tech context
+﻿# Tech context
 
 - Next.js 15 App Router, React 19, TypeScript, Tailwind CSS v4 (`@theme` in `app/globals.css`).
 - Fonts: Outfit, Fraunces, Vazirmatn via `next/font/local` from `app/fonts` (offline-friendly).

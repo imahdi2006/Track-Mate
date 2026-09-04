@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   loginServerAccount,
@@ -21,7 +21,7 @@ import type {
   BookStatus,
   CreateRoomInput,
   MicroNote,
-  BookMateSnapshot,
+  TrackmateSnapshot,
   Profile,
   PushSubscriptionRecord,
   ReadingPair,
@@ -220,7 +220,7 @@ function findUserByEmail(email: string): Profile | null {
   );
 }
 
-function assemble(userId: string | null): BookMateSnapshot {
+function assemble(userId: string | null): TrackmateSnapshot {
   if (!userId) return emptySnapshot();
   const users = readUsers();
   const profile = users[userId] ? { ...users[userId], displayName: personName(users[userId]) } : null;
@@ -639,7 +639,7 @@ export function createLocalAdapter(): SyncAdapter {
       }
       if (!pair) {
         throw new Error(
-          "No room with that code. Ask someone to share a book link while BookMate is running, then open that link again.",
+          "No room with that code. Ask someone to share a book link while Trackmate is running, then open that link again.",
         );
       }
       const ids = pairMemberIds(pair);
@@ -1034,6 +1034,7 @@ export function createLocalAdapter(): SyncAdapter {
         bookId,
         page,
         bookTitle: book?.title,
+        kind: book?.kind,
       });
     },
 
@@ -1081,6 +1082,7 @@ export function createLocalAdapter(): SyncAdapter {
         emoji: input.emoji,
         note: input.note,
         bookTitle: readPairData(pair.id).books.find((b) => b.id === input.bookId)?.title,
+        kind: readPairData(pair.id).books.find((b) => b.id === input.bookId)?.kind,
       });
       return note;
     },

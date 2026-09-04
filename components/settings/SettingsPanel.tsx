@@ -1,7 +1,18 @@
-"use client";
+﻿"use client";
 
-import { Copy, DoorOpen, Github, LogOut, Share2, Trash2, Users } from "lucide-react";
-import { BookMateLogo } from "@/components/branding/BookMateLogo";
+import {
+  Bug,
+  CheckCircle2,
+  Copy,
+  DoorOpen,
+  Github,
+  LogOut,
+  RefreshCw,
+  Share2,
+  Trash2,
+  Users,
+} from "lucide-react";
+import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
 import { ShareLinkModal } from "@/components/auth/ShareLinkModal";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -9,8 +20,9 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
 import { usePWAInstall } from "@/hooks/usePWAInstall";
+import { usePWAUpdate } from "@/hooks/usePWAUpdate";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
-import { GITHUB_URL } from "@/lib/config";
+import { APP_VERSION, BUG_REPORT_EMAIL, GITHUB_URL } from "@/lib/config";
 import { personName } from "@/lib/names";
 import { roomShareUrl } from "@/lib/invite";
 import { getSyncMode } from "@/lib/store/session-store";
@@ -36,6 +48,11 @@ export function SettingsPanel() {
   const [signingOut, setSigningOut] = useState(false);
   const push = usePushNotifications();
   const install = usePWAInstall();
+  const pwaUpdate = usePWAUpdate();
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [bugOpen, setBugOpen] = useState(false);
+  const [bugWhat, setBugWhat] = useState("");
+  const [bugExpected, setBugExpected] = useState("");
 
   useEffect(() => {
     setName(personName(profile));
@@ -57,10 +74,57 @@ export function SettingsPanel() {
     }
   }
 
+  async function checkForUpdates() {
+    setCheckingUpdate(true);
+    try {
+      const result = await pwaUpdate.checkNow();
+      if (result === "update-found") {
+        useToastStore.getState().push({
+          title: "Update ready",
+          body: "Tap the banner to restart with the latest version.",
+          tone: "success",
+        });
+      } else if (result === "up-to-date") {
+        useToastStore.getState().push({ title: "You’re up to date", tone: "success" });
+      } else {
+        useToastStore.getState().push({
+          title: "Can’t check for updates",
+          body: "This browser doesn’t support background updates here.",
+          tone: "warn",
+        });
+      }
+    } catch {
+      useToastStore.getState().push({ title: "Couldn’t check for updates", tone: "warn" });
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
+  function bugReportBody() {
+    return [
+      "What happened:",
+      bugWhat.trim() || "(describe the bug)",
+      "",
+      "What I expected:",
+      bugExpected.trim() || "(what should have happened)",
+      "",
+      `— app v${APP_VERSION} · ${getSyncMode()} · room ${room.inviteCode}`,
+      typeof navigator === "undefined" ? "" : navigator.userAgent,
+    ].join("\n");
+  }
+
+  function bugMailto() {
+    const params = new URLSearchParams({
+      subject: "Trackmate bug report",
+      body: bugReportBody(),
+    });
+    return `mailto:${BUG_REPORT_EMAIL}?${params.toString()}`;
+  }
+
   return (
     <div className="space-y-6 pb-4">
       <header className="flex items-center justify-between">
-        <BookMateLogo size={32} withWordmark />
+        <TrackmateLogo size={32} withWordmark />
       </header>
 
       <section className="glass rounded-3xl p-4">
@@ -188,6 +252,11 @@ export function SettingsPanel() {
               {push.subscribed ? "On — roommates can ping this device" : "Off"}
             </p>
             {push.error ? <p className="text-xs text-accent">{push.error}</p> : null}
+            {push.permission === "denied" ? (
+              <p className="text-xs text-accent">
+                Notifications are blocked for this site. Allow them in the browser settings, then toggle on again.
+              </p>
+            ) : null}
             {!push.supported && install.platform === "ios" ? (
               <p className="text-xs text-accent">
                 On iPhone, Add to Home Screen first (HTTPS), then enable push.
@@ -220,7 +289,7 @@ export function SettingsPanel() {
               useToastStore.getState().push({
                 title: ok ? "Test ping sent" : "Couldn’t ping",
                 body: ok
-                  ? "You should see a BookMate notification in a second."
+                  ? "You should see a Trackmate notification in a second."
                   : push.error ?? "Check the toggle and try again.",
                 tone: ok ? "success" : "warn",
               });
@@ -260,7 +329,7 @@ export function SettingsPanel() {
                 else install.open();
               }}
             >
-              Install BookMate
+              Install Trackmate
             </Button>
             <p className="text-[11px] text-muted">
               Native install needs HTTPS. On iPhone use Share → Add to Home Screen.
@@ -271,10 +340,47 @@ export function SettingsPanel() {
 
       <section className="glass rounded-3xl p-4 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+          About &amp; support
+        </p>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm">Version {APP_VERSION}</p>
+            <p className="text-xs text-muted">
+              {pwaUpdate.updateReady ? "An update is ready — see the banner above." : "Running the latest you’ve installed."}
+            </p>
+          </div>
+          {pwaUpdate.updateReady ? (
+            <CheckCircle2 size={20} className="shrink-0 text-brand-glow" />
+          ) : null}
+        </div>
+        <Button
+          variant="secondary"
+          className="w-full"
+          disabled={checkingUpdate}
+          onClick={() => void checkForUpdates()}
+        >
+          <RefreshCw size={16} className={checkingUpdate ? "animate-spin" : ""} />
+          {checkingUpdate ? "Checking…" : "Check for updates"}
+        </Button>
+        <button
+          type="button"
+          onClick={() => setBugOpen(true)}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-white/5 text-sm font-medium text-cream hover:bg-white/8"
+        >
+          <Bug size={16} />
+          Report a bug
+        </button>
+        <p className="text-[11px] text-muted">
+          Emails go to {BUG_REPORT_EMAIL}. Include what you tapped and what you expected.
+        </p>
+      </section>
+
+      <section className="glass rounded-3xl p-4 space-y-3">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted">
           Open source
         </p>
         <p className="text-sm text-muted">
-          BookMate is free and open source (MIT). Use it, fork it, self-host it,
+          Trackmate is free and open source (MIT). Use it, fork it, self-host it,
           or send a pull request — the code is yours to run.
         </p>
         <a
@@ -356,6 +462,68 @@ export function SettingsPanel() {
             }}
           >
             Delete
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={bugOpen}
+        onClose={() => setBugOpen(false)}
+        title="Report a bug"
+        icon={<Bug size={20} />}
+      >
+        <p className="text-sm text-muted">
+          Short notes are enough. We’ll get the app version and your room code automatically.
+        </p>
+        <label className="mt-3 block text-xs text-muted">
+          What happened
+          <textarea
+            dir="auto"
+            rows={3}
+            value={bugWhat}
+            onChange={(e) => setBugWhat(e.target.value)}
+            placeholder="I tapped Share and the other person saw…"
+            className="mt-1 h-auto min-h-[5.5rem] w-full resize-y rounded-2xl border border-line bg-white/5 px-4 py-3 text-base text-cream placeholder:text-muted/70 outline-none focus:border-brand/60 focus:ring-2 focus:ring-brand/30"
+          />
+        </label>
+        <label className="mt-3 block text-xs text-muted">
+          What you expected
+          <textarea
+            dir="auto"
+            rows={2}
+            value={bugExpected}
+            onChange={(e) => setBugExpected(e.target.value)}
+            placeholder="They should have joined this title."
+            className="mt-1 h-auto min-h-[4rem] w-full resize-y rounded-2xl border border-line bg-white/5 px-4 py-3 text-base text-cream placeholder:text-muted/70 outline-none focus:border-brand/60 focus:ring-2 focus:ring-brand/30"
+          />
+        </label>
+        <div className="mt-5 flex gap-2">
+          <Button
+            variant="secondary"
+            className="flex-1"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(`${BUG_REPORT_EMAIL}\n\n${bugReportBody()}`);
+                useToastStore.getState().push({ title: "Copied — paste into an email", tone: "success" });
+              } catch {
+                useToastStore.getState().push({
+                  title: "Copy failed",
+                  body: `Email ${BUG_REPORT_EMAIL} instead.`,
+                  tone: "warn",
+                });
+              }
+            }}
+          >
+            Copy
+          </Button>
+          <Button
+            className="flex-1"
+            onClick={() => {
+              window.location.href = bugMailto();
+              setBugOpen(false);
+            }}
+          >
+            Open email
           </Button>
         </div>
       </Modal>

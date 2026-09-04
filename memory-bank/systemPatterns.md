@@ -1,4 +1,4 @@
-# System patterns
+﻿# System patterns
 
 - **Adapter sync:** `SyncAdapter` hides Local vs Supabase. Zustand is the UI source of truth.
 - **Optimistic page turns** + `debounceMutex(key, fn, 420)` + last-value persist.

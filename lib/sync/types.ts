@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import type {
   Activity,
@@ -7,7 +7,7 @@ import type {
   BookStatus,
   CreateRoomInput,
   MicroNote,
-  BookMateSnapshot,
+  TrackmateSnapshot,
   Profile,
   PushSubscriptionRecord,
   ReactionEmoji,
@@ -15,11 +15,11 @@ import type {
   TitleKind,
 } from "@/lib/types";
 
-export type ProgressListener = (snapshot: Partial<BookMateSnapshot>) => void;
+export type ProgressListener = (snapshot: Partial<TrackmateSnapshot>) => void;
 
 export interface SyncAdapter {
   readonly mode: "local" | "supabase";
-  hydrate(): Promise<BookMateSnapshot>;
+  hydrate(): Promise<TrackmateSnapshot>;
   authenticate(payload: AuthPayload): Promise<Profile>;
   requestPasswordReset(email: string): Promise<{ emailed: boolean; message: string; resetUrl?: string }>;
   signOut(): Promise<void>;
