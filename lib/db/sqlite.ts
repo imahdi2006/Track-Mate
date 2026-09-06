@@ -111,13 +111,31 @@ function migrateFromJson(database: Database.Database): void {
 /** SQLite at .data/pagemate.db — accounts, resets, and pair/library JSON docs. */
 export function getDb(): Database.Database {
   if (db) return db;
-  mkdirSync(DATA_DIR, { recursive: true });
-  db = new Database(DB_PATH);
-  db.pragma("journal_mode = WAL");
-  db.pragma("busy_timeout = 5000");
-  initSchema(db);
-  migrateFromJson(db);
-  return db;
+  try {
+    mkdirSync(DATA_DIR, { recursive: true });
+    db = new Database(DB_PATH);
+    db.pragma("journal_mode = WAL");
+    db.pragma("busy_timeout = 5000");
+    initSchema(db);
+    migrateFromJson(db);
+    return db;
+  } catch (err) {
+    // This local SQLite demo path only works on a normal writable
+    // filesystem (e.g. `npm run dev` on your machine). On Vercel/most
+    // serverless hosts the deployed code lives on a read-only filesystem
+    // (only `/tmp` is writable), so `mkdir .data` throws ENOENT/EACCES here
+    // — every time — unless `isSupabaseConfigured()` was true and this
+    // path was never supposed to run at all. In practice, hitting this
+    // means the Supabase env vars aren't actually set for this deployment.
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `This deployment isn't configured for production auth (${detail}). ` +
+        "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in " +
+        "Vercel \u2192 Settings \u2192 Environment Variables, then redeploy " +
+        "(env var changes need a fresh deploy to take effect) \u2014 don't rely on " +
+        "the local SQLite demo in production.",
+    );
+  }
 }
 
 export function dbPath(): string {

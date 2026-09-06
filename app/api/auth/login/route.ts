@@ -26,22 +26,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "Enter email and password." }, { status: 400 });
   }
 
-  const user = await verifyUser(email, password);
-  if (!user) {
-    const exists = await findUser(email);
-    return NextResponse.json(
-      {
-        message: exists
-          ? "Wrong password."
-          : "No account for that email. Create one first.",
-      },
-      { status: 401 },
-    );
-  }
+  try {
+    const user = await verifyUser(email, password);
+    if (!user) {
+      const exists = await findUser(email);
+      return NextResponse.json(
+        {
+          message: exists
+            ? "Wrong password."
+            : "No account for that email. Create one first.",
+        },
+        { status: 401 },
+      );
+    }
 
-  return NextResponse.json({
-    email: user.email,
-    profileId: user.profileId,
-    displayName: user.displayName,
-  });
+    return NextResponse.json({
+      email: user.email,
+      profileId: user.profileId,
+      displayName: user.displayName,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Couldn’t sign in";
+    return NextResponse.json({ message }, { status: 500 });
+  }
 }

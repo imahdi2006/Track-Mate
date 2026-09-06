@@ -67,7 +67,33 @@ once `0002` has already renamed the column. Re-run `SETUP_ALL.sql` — it's fixe
   already fully protects rendering client-side; edge redirects are extra risk for
   little gain right now given how much is still being stabilized.
 
-**Next:** User must run `supabase/SETUP_ALL.sql` (now fixed) in the Supabase SQL Editor.
-Then verify the 4 Google OAuth dashboard items above, and confirm exact env var
-locations from `docs/VERCEL_DEPLOY.md` Troubleshooting. Set `RESEND_API_KEY` on Vercel
-for bug reports. Commit + push only when asked. Do not reset the DB.
+**New, bigger finding:** even with Google skipped, plain email/password sign-in failed
+on the deployed app with `Couldn't create account: ENOENT: no such file or directory,
+mkdir '/var/task/.data'`. That's the **local SQLite demo path** (`lib/db/sqlite.ts`)
+running on Vercel, whose filesystem is read-only outside `/tmp`. It only runs when
+`isSupabaseConfigured()` is `false` (`lib/auth/local-api-guard.ts`) — i.e. **this
+deployment's Supabase env vars aren't actually reaching the server at runtime.** Not a
+Google-specific problem; nothing to do with OAuth. Root cause is almost certainly one
+of: `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` missing on Vercel, only
+scoped to Preview/Development (not Production), a typo, or added but never redeployed
+(env var changes need a fresh deploy on Vercel, always).
+
+Fixes so this fails loudly and clearly instead of a raw filesystem error:
+- `lib/db/sqlite.ts` `getDb()`: wraps init in try/catch, throws a message that says
+  outright "Set NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY on Vercel,
+  then redeploy" instead of the bare `ENOENT`.
+- `app/api/auth/login`, `forgot-password`, `reset-password` routes: were missing
+  try/catch around the DB calls (only `register` had one), so a `getDb()` throw became
+  an unhandled 500 with no JSON body. All four auth routes now return `{ message }`
+  consistently.
+- **New `GET /api/health`** (no auth, no secrets) returns `{ supabaseConfigured,
+  vapidConfigured, resendConfigured, appUrl, nodeEnv }` — visit it after any deploy to
+  confirm env vars actually reached the server, instead of trial-and-error via the UI.
+
+**Next:** User must (1) run `supabase/SETUP_ALL.sql` (now fixed) in the Supabase SQL
+Editor, (2) visit `https://tracksmate.vercel.app/api/health` and confirm
+`supabaseConfigured: true` — if false, fix the Vercel env vars (exist, correct names,
+scoped to Production, then **redeploy**) before anything else, (3) then revisit Google
+OAuth dashboard items whenever they're ready (explicitly deferred this round — "under
+embargo"). Set `RESEND_API_KEY` on Vercel for bug reports. Commit + push only when
+asked. Do not reset the DB.

@@ -41,29 +41,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ emailed: true, message: GENERIC });
   }
 
-  const user = await findUser(email);
-  if (!user) {
-    return NextResponse.json({ emailed: true, message: GENERIC });
-  }
-
-  const token = await issueResetToken(email);
-  if (!token) {
-    return NextResponse.json({ emailed: true, message: GENERIC });
-  }
-
-  const resetUrl = `${buildOrigin(request, body.origin)}/reset-password?token=${encodeURIComponent(token)}`;
-
-  if (process.env.RESEND_API_KEY) {
-    const sent = await sendPasswordResetEmail({ to: email, resetUrl });
-    if (sent.ok) {
+  try {
+    const user = await findUser(email);
+    if (!user) {
       return NextResponse.json({ emailed: true, message: GENERIC });
     }
-  }
 
-  return NextResponse.json({
-    emailed: false,
-    resetUrl,
-    message:
-      "Email is not set up on this server. Copy the reset link below — it expires in one hour.",
-  });
+    const token = await issueResetToken(email);
+    if (!token) {
+      return NextResponse.json({ emailed: true, message: GENERIC });
+    }
+
+    const resetUrl = `${buildOrigin(request, body.origin)}/reset-password?token=${encodeURIComponent(token)}`;
+
+    if (process.env.RESEND_API_KEY) {
+      const sent = await sendPasswordResetEmail({ to: email, resetUrl });
+      if (sent.ok) {
+        return NextResponse.json({ emailed: true, message: GENERIC });
+      }
+    }
+
+    return NextResponse.json({
+      emailed: false,
+      resetUrl,
+      message:
+        "Email is not set up on this server. Copy the reset link below — it expires in one hour.",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Couldn’t process that request";
+    return NextResponse.json({ message }, { status: 500 });
+  }
 }

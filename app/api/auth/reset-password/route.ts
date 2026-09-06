@@ -29,22 +29,27 @@ export async function POST(request: Request) {
     );
   }
 
-  const user = await consumeResetToken(token);
-  if (!user) {
-    return NextResponse.json(
-      { message: "This reset link is invalid or expired. Request a new one." },
-      { status: 400 },
-    );
-  }
+  try {
+    const user = await consumeResetToken(token);
+    if (!user) {
+      return NextResponse.json(
+        { message: "This reset link is invalid or expired. Request a new one." },
+        { status: 400 },
+      );
+    }
 
-  const updated = await updatePassword(user.email, password);
-  if (!updated) {
-    return NextResponse.json({ message: "Couldn’t update password." }, { status: 400 });
-  }
+    const updated = await updatePassword(user.email, password);
+    if (!updated) {
+      return NextResponse.json({ message: "Couldn’t update password." }, { status: 400 });
+    }
 
-  return NextResponse.json({
-    email: updated.email,
-    profileId: updated.profileId,
-    displayName: updated.displayName,
-  });
+    return NextResponse.json({
+      email: updated.email,
+      profileId: updated.profileId,
+      displayName: updated.displayName,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Couldn’t update password";
+    return NextResponse.json({ message }, { status: 500 });
+  }
 }
