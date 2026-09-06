@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 /**
  * Per-key debounce + promise mutex.

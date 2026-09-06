@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { localApiUnavailable } from "@/lib/auth/local-api-guard";
 import { rateLimit } from "@/lib/auth/rate-limit";
 import { sendPasswordResetEmail } from "@/lib/auth/resend";

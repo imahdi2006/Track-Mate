@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Share, Plus, MoreHorizontal } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";

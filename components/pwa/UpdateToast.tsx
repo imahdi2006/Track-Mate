@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Rocket } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";

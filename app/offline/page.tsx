@@ -1,4 +1,4 @@
-﻿import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
+import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
 import Link from "next/link";
 
 export default function OfflinePage() {

@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import webpush from "web-push";
 import { PUSH_THROTTLE_MS, isSupabaseConfigured } from "@/lib/config";
 import { formatUnitMark, parseTitleKind } from "@/lib/media";

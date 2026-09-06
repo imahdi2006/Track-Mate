@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import type { RealtimeChannel, SupabaseClient, User } from "@supabase/supabase-js";
 import { EmailConfirmationRequired } from "@/lib/auth/errors";
