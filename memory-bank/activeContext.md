@@ -2,24 +2,16 @@
 
 Product name is **Trackmate**. Dark-first PWA with a light theme toggle.
 
-**Current focus:** Production hardening — reliable push, check-for-updates, bug report, shelf search, name decision.
+**Current focus:** Production bugs — Google auth, email redirects, share join, catalog data, Resend bug reports, floating glass nav.
 
 **Recent:**
-- Settings rooms are one card with copy/share/delete icons; extra “people are on Home” copy is gone.
-- Add to library: search (or enter yourself) → review card + shelf status. Cover crop still on manual/edit.
-- Bottom nav highlight wraps the icon only; bar is shorter so it doesn’t sit on the labels.
-- Modal titles take an icon (library / pencil).
-- Movie search (`lib/catalog.ts` `searchWatchable`) now queries iTunes movies **and** TVMaze series together and tags each hit with a Film/Series icon in `CatalogPicker` — fixes shows (e.g. "Breaking Bad") landing as a 1-minute movie. Season chips (all / per-season episode counts) added to `EditBookModal` too, matching `AddBookModal`, so a mis-added title can be fixed after the fact.
-- `CoverPicker`’s Remove action now has an icon (Trash2), matching the icon-first pattern used elsewhere (book toolbar, settings rooms).
-- `supabase-adapter.subscribe` re-hydrates on `visibilitychange`/`focus` as a safety net, so if a live Realtime event is missed (e.g. someone else removing you from a title), the screen still updates without a manual page refresh.
-- **Fixed the real "share link doesn't work" bug:** `JoinCapture` (the `/join/[code]` page) had a bug where if `joinRoom()` failed for someone who already has a room — most commonly because **the room hit its 5-member cap** — the code still redirected them to `/book/{id}` on the `.catch()` path. Since they were never actually granted access, that page just showed "Book not found," which looked exactly like a broken link and made the room cap look unenforced. Now a failed join always clears the pending book and sends them home with the real error toast (e.g. "This room is full (max 5)."). The cap itself was already correctly enforced in both adapters + a Postgres trigger (`enforce_room_member_cap` in `0002_rooms.sql`) — it just wasn't surfacing.
+- Added interview-style systems doc: `docs/INTERVIEW_QA_SYSTEMS.md` (offline, covers, JWT/auth, PWA, push + improvements); linked from architecture TOC.
+- Auth redirects use `getAuthRedirectOrigin()` so confirmation / reset / Google return to the live app host (`tracksmate.vercel.app`), not an old preview URL.
+- Clearer Google error when the Supabase provider is disabled (“provider is not enabled”).
+- Pending `/join` invites are consumed after sign-in even if the user already has a room (`AuthGate` PendingJoinConsumer).
+- Migration `0007_grant_book_access.sql` + `grant_book_access_self` RPC fixes book-scoped share joins (RLS circularity).
+- Catalog: series search loads episode counts from TVMaze; movies prefer real iTunes runtimes; results show `N min` / `N ep`.
+- Bug report sends through Resend (`POST /api/bug-report`) instead of opening mailto.
+- Bottom nav is a floating Telegram-style glass pill (not full-width). Cache `Trackmate-v13`.
 
-- **Push reliability:** client re-upserts the live subscription on app open / tab focus (`usePushNotifications.heal`). Send path prunes 404/410 endpoints, scopes pings to people who can open that title, and uses kind-aware copy (page / lesson / min / episode). iOS blocked-permission copy is clearer.
-- **Check for updates:** Settings button + automatic SW check on focus and every 30 minutes. Cache bumped to `Trackmate-v12`.
-- **Report a bug:** Settings modal → Open email or Copy, to `mahdi.mahdi1385631@gmail.com`, with version / room / UA.
-- **Search:** Home + Library match title, creator, and kind. Library has an All tab.
-- **Name:** User asked for suggestions before a further rebrand. Current shipping name is **Trackmate**. Recommended alternatives: **Shelfmate**, **Pace**, **Along**.
-
-- **Vercel still fails in ~2s** even after UI shows 22.x: log is always `24.x` → `""`. Cause is almost certainly a **blank `NODE_VERSION` env var** and/or our earlier `vercel.json` `build.env.NODE_VERSION` override. Fix: delete any `NODE_VERSION` env, set dashboard to **24.x** + Save, `engines.node: "24.x"`, no NODE_VERSION in vercel.json.
-
-**Next:** Set Vercel Node to 22.x and redeploy. User picks a product name if Trackmate is not final. Run `0005` and `0006` on the existing Supabase project. Commit + push only when asked. Do not reset the DB.
+**Next:** User must run `0007` (and any missing `0005`/`0006`) on Supabase. Set Site URL + Redirect URLs + `NEXT_PUBLIC_APP_URL` to `https://tracksmate.vercel.app`. Enable Google in Supabase Providers. Set `RESEND_API_KEY` on Vercel for bug reports. Commit + push only when asked. Do not reset the DB.

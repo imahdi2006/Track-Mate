@@ -93,18 +93,28 @@ async function searchBooks(query: string): Promise<CatalogHit[]> {
 
 async function searchMovies(query: string): Promise<CatalogHit[]> {
   const results = await searchItunes(query, "movie");
-  return results
+  const hits = results
     .filter((r) => r.trackName)
-    .map((r) => ({
-      id: `itunes-movie:${r.trackId ?? r.collectionId}`,
-      kind: "movie" as const,
-      title: r.trackName ?? "Untitled",
-      creator: r.artistName ?? "Unknown",
-      coverUrl: itunesArt(r.artworkUrl100),
-      totalUnits: Math.max(1, Math.round((r.trackTimeMillis ?? 0) / 60000) || defaultTotalUnits("movie")),
-      year: yearOf(r.releaseDate),
-      source: "iTunes",
-    }));
+    .map((r) => {
+      const mins = Math.round((r.trackTimeMillis ?? 0) / 60000);
+      return {
+        id: `itunes-movie:${r.trackId ?? r.collectionId}`,
+        kind: "movie" as const,
+        title: r.trackName ?? "Untitled",
+        creator: r.artistName ?? "Unknown",
+        coverUrl: itunesArt(r.artworkUrl100),
+        // Prefer real runtimes; push unknown-length results to the end later.
+        totalUnits: mins > 0 ? mins : 0,
+        year: yearOf(r.releaseDate),
+        source: "iTunes",
+      };
+    });
+  // Real runtimes first; fill missing with a sensible default only at the end.
+  hits.sort((a, b) => (b.totalUnits > 0 ? 1 : 0) - (a.totalUnits > 0 ? 1 : 0));
+  return hits.map((h) => ({
+    ...h,
+    totalUnits: h.totalUnits > 0 ? h.totalUnits : defaultTotalUnits("movie"),
+  }));
 }
 
 interface TvmazeShow {
@@ -114,6 +124,7 @@ interface TvmazeShow {
   image?: { medium?: string; original?: string } | null;
   network?: { name?: string } | null;
   webChannel?: { name?: string } | null;
+  status?: string;
 }
 
 interface TvmazeSeason {
@@ -129,25 +140,50 @@ function tvmazeShowId(hitId: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+async function episodeCountForShow(showId: number): Promise<number> {
+  try {
+    const seasonRes = await fetch(`https://api.tvmaze.com/shows/${showId}/seasons`, {
+      headers: { Accept: "application/json" },
+    });
+    if (seasonRes.ok) {
+      const rows = ((await seasonRes.json()) as TvmazeSeason[]) ?? [];
+      const sum = rows.reduce((n, row) => n + Math.max(0, Number(row.episodeOrder ?? 0)), 0);
+      if (sum > 0) return sum;
+    }
+    const epRes = await fetch(`https://api.tvmaze.com/shows/${showId}/episodes`, {
+      headers: { Accept: "application/json" },
+    });
+    if (epRes.ok) {
+      const eps = ((await epRes.json()) as unknown[]) ?? [];
+      return Math.max(0, eps.length);
+    }
+  } catch {
+    /* ignore */
+  }
+  return 0;
+}
+
 async function searchSeries(query: string): Promise<CatalogHit[]> {
   const url = `https://api.tvmaze.com/search/shows?q=${encodeURIComponent(query)}`;
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) return [];
   const json = (await res.json()) as { show?: TvmazeShow }[];
-  return (json ?? [])
+  const shows = (json ?? [])
     .map((row) => row.show)
     .filter((show): show is TvmazeShow => Boolean(show?.id && show.name))
-    .slice(0, 8)
-    .map((show) => ({
-      id: `tvmaze:${show.id}`,
-      kind: "series" as const,
-      title: show.name ?? "Untitled",
-      creator: show.network?.name ?? show.webChannel?.name ?? "Unknown",
-      coverUrl: show.image?.original ?? show.image?.medium ?? null,
-      totalUnits: defaultTotalUnits("series"),
-      year: yearOf(show.premiered),
-      source: "TVMaze",
-    }));
+    .slice(0, 8);
+
+  const counts = await Promise.all(shows.map((s) => episodeCountForShow(s.id)));
+  return shows.map((show, i) => ({
+    id: `tvmaze:${show.id}`,
+    kind: "series" as const,
+    title: show.name ?? "Untitled",
+    creator: show.network?.name ?? show.webChannel?.name ?? "Unknown",
+    coverUrl: show.image?.original ?? show.image?.medium ?? null,
+    totalUnits: Math.max(1, counts[i] || defaultTotalUnits("series")),
+    year: yearOf(show.premiered),
+    source: "TVMaze",
+  }));
 }
 
 export interface SeriesSeason {

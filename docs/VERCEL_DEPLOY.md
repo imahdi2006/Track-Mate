@@ -40,9 +40,15 @@ So: **push the code, do not replace the database.**
    - While the Google app is in **Testing**, add each Gmail as a test user (OAuth consent screen). Until you click **Publish app**, only those test users can sign in with Google.
 4. **Authentication → Providers** (or Auth settings): enable **automatic account linking** / confirm that verified emails from Google attach to the existing email+password user. Same Gmail = same Trackmate account.
 5. **Authentication → URL configuration**:
-   - Site URL: `https://YOUR_APP.vercel.app`
-   - Redirect URLs: `https://YOUR_APP.vercel.app/**`, `https://YOUR_APP.vercel.app/auth/callback`, and `http://localhost:3000/**`
-6. Copy **Project URL**, **anon key**, and **service_role** key (Settings → API). Put the **same** keys on Vercel that this project already uses.
+   - Site URL: `https://tracksmate.vercel.app` (your real app domain — **not** a random `*.vercel.app` preview)
+   - Redirect URLs must include:
+     - `https://tracksmate.vercel.app/**`
+     - `https://tracksmate.vercel.app/auth/callback`
+     - `https://tracksmate.vercel.app/reset-password`
+     - `http://localhost:3000/**`
+6. On Vercel, set `NEXT_PUBLIC_APP_URL=https://tracksmate.vercel.app` so signup / reset / Google redirects open **your app**, not an old preview host.
+7. Copy **Project URL**, **anon key**, and **service_role** key (Settings → API). Put the **same** keys on Vercel that this project already uses.
+8. Apply **`0007_grant_book_access.sql`** so **Share this title** joins work (book-scoped invites).
 
 ## 2. Vercel project
 
@@ -54,9 +60,11 @@ So: **push the code, do not replace the database.**
 | `NEXT_PUBLIC_SUPABASE_URL` | yes (existing project) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes (push fan-out) |
-| `NEXT_PUBLIC_APP_URL` | yes (`https://YOUR_APP.vercel.app`) |
+| `NEXT_PUBLIC_APP_URL` | yes (`https://tracksmate.vercel.app`) |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | yes for push |
 | `VAPID_PRIVATE_KEY` | yes for push |
+| `RESEND_API_KEY` | yes for Settings → Report a bug (and local forgot-password) |
+| `RESEND_FROM` | optional (verified domain sender) |
 | `NEXT_PUBLIC_GITHUB_URL` | optional (defaults to this repo) |
 | `NEXT_PUBLIC_SUPPORT_URL` | optional; coffee button is commented out in Settings |
 
@@ -73,8 +81,12 @@ Generate VAPID locally: `npm run vapid`. Keep the **same** VAPID keys if devices
 ## 3. Smoke checklist
 
 - [ ] Existing email/password users can still sign in
-- [ ] **Continue with Google** (white Google button) — new users get an account; same Gmail as a password user opens that account
-- [ ] Open a title → **People on this title**; Remove updates the list immediately (no refresh)
+- [ ] **Continue with Google** — if you see “provider is not enabled”, turn on Google under Supabase → Authentication → Providers
+- [ ] Confirmation / reset emails open `https://tracksmate.vercel.app` (Site URL + `NEXT_PUBLIC_APP_URL`)
+- [ ] Share a title → second user joins (needs `0007`) and only sees that title
+- [ ] Settings → Report a bug sends via Resend (needs `RESEND_API_KEY`)
+- [ ] Movie search shows minutes; series search shows episode counts; season chips on add/edit
+- [ ] Bottom nav is a floating glass pill (not full-width)
 - [ ] Notes you send show ticks; tap ticks to see who read them (needs `0005`)
 - [ ] Add/edit cover: choose a photo → crop to 2:3, then save
 - [ ] Progress labels show a name, not an email handle

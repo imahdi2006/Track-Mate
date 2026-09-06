@@ -22,7 +22,7 @@ import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
 import { usePWAInstall } from "@/hooks/usePWAInstall";
 import { usePWAUpdate } from "@/hooks/usePWAUpdate";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
-import { APP_VERSION, BUG_REPORT_EMAIL, GITHUB_URL } from "@/lib/config";
+import { APP_VERSION, GITHUB_URL } from "@/lib/config";
 import { personName } from "@/lib/names";
 import { roomShareUrl } from "@/lib/invite";
 import { getSyncMode } from "@/lib/store/session-store";
@@ -53,6 +53,7 @@ export function SettingsPanel() {
   const [bugOpen, setBugOpen] = useState(false);
   const [bugWhat, setBugWhat] = useState("");
   const [bugExpected, setBugExpected] = useState("");
+  const [bugSending, setBugSending] = useState(false);
 
   useEffect(() => {
     setName(personName(profile));
@@ -100,25 +101,70 @@ export function SettingsPanel() {
     }
   }
 
-  function bugReportBody() {
-    return [
-      "What happened:",
-      bugWhat.trim() || "(describe the bug)",
-      "",
-      "What I expected:",
-      bugExpected.trim() || "(what should have happened)",
-      "",
-      `— app v${APP_VERSION} · ${getSyncMode()} · room ${room.inviteCode}`,
-      typeof navigator === "undefined" ? "" : navigator.userAgent,
-    ].join("\n");
-  }
-
-  function bugMailto() {
-    const params = new URLSearchParams({
-      subject: "Trackmate bug report",
-      body: bugReportBody(),
-    });
-    return `mailto:${BUG_REPORT_EMAIL}?${params.toString()}`;
+  async function sendBugReport() {
+    if (bugWhat.trim().length < 8) {
+      useToastStore.getState().push({
+        title: "Add a bit more detail",
+        body: "Describe what you tapped and what went wrong.",
+        tone: "warn",
+      });
+      return;
+    }
+    setBugSending(true);
+    try {
+      let token: string | undefined;
+      try {
+        const { getSupabaseBrowserClient } = await import("@/lib/supabase/client");
+        const sb = getSupabaseBrowserClient();
+        if (sb) {
+          const { data } = await sb.auth.getSession();
+          token = data.session?.access_token;
+        }
+      } catch {
+        /* local demo */
+      }
+      const res = await fetch("/api/bug-report", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          what: bugWhat.trim(),
+          expected: bugExpected.trim(),
+          version: APP_VERSION,
+          mode: getSyncMode(),
+          roomCode: room.inviteCode,
+          userAgent: typeof navigator === "undefined" ? "" : navigator.userAgent,
+          email: profile.email ?? undefined,
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; message?: string };
+      if (!data.ok) {
+        useToastStore.getState().push({
+          title: "Couldn’t send report",
+          body: data.message ?? "Try again, or copy the text and email us.",
+          tone: "warn",
+        });
+        return;
+      }
+      useToastStore.getState().push({
+        title: "Report sent",
+        body: "Thanks — we’ll take a look.",
+        tone: "success",
+      });
+      setBugWhat("");
+      setBugExpected("");
+      setBugOpen(false);
+    } catch (err) {
+      useToastStore.getState().push({
+        title: "Couldn’t send report",
+        body: err instanceof Error ? err.message : "Try again",
+        tone: "warn",
+      });
+    } finally {
+      setBugSending(false);
+    }
   }
 
   return (
@@ -371,7 +417,7 @@ export function SettingsPanel() {
           Report a bug
         </button>
         <p className="text-[11px] text-muted">
-          Emails go to {BUG_REPORT_EMAIL}. Include what you tapped and what you expected.
+          Sent to the Trackmate inbox via email. No mail app needed.
         </p>
       </section>
 
@@ -473,7 +519,7 @@ export function SettingsPanel() {
         icon={<Bug size={20} />}
       >
         <p className="text-sm text-muted">
-          Short notes are enough. We’ll get the app version and your room code automatically.
+          Short notes are enough. We attach your app version and room code automatically.
         </p>
         <label className="mt-3 block text-xs text-muted">
           What happened
@@ -497,35 +543,13 @@ export function SettingsPanel() {
             className="mt-1 h-auto min-h-[4rem] w-full resize-y rounded-2xl border border-line bg-white/5 px-4 py-3 text-base text-cream placeholder:text-muted/70 outline-none focus:border-brand/60 focus:ring-2 focus:ring-brand/30"
           />
         </label>
-        <div className="mt-5 flex gap-2">
-          <Button
-            variant="secondary"
-            className="flex-1"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(`${BUG_REPORT_EMAIL}\n\n${bugReportBody()}`);
-                useToastStore.getState().push({ title: "Copied — paste into an email", tone: "success" });
-              } catch {
-                useToastStore.getState().push({
-                  title: "Copy failed",
-                  body: `Email ${BUG_REPORT_EMAIL} instead.`,
-                  tone: "warn",
-                });
-              }
-            }}
-          >
-            Copy
-          </Button>
-          <Button
-            className="flex-1"
-            onClick={() => {
-              window.location.href = bugMailto();
-              setBugOpen(false);
-            }}
-          >
-            Open email
-          </Button>
-        </div>
+        <Button
+          className="mt-5 w-full"
+          disabled={bugSending}
+          onClick={() => void sendBugReport()}
+        >
+          {bugSending ? "Sending…" : "Send report"}
+        </Button>
       </Modal>
 
       <Modal open={confirmSignOut} onClose={() => setConfirmSignOut(false)} title="Sign out?">

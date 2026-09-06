@@ -8,7 +8,7 @@
  *  - message SKIP_WAITING: update modal orchestration
  */
 
-const CACHE_VERSION = "Trackmate-v12";
+const CACHE_VERSION = "Trackmate-v13";
 const PRECACHE = [
   "/offline",
   "/offline.html",

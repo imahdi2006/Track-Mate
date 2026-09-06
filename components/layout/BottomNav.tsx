@@ -18,35 +18,31 @@ export function BottomNav() {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-canvas/90 pb-[max(0.35rem,env(safe-area-inset-bottom))] backdrop-blur-2xl"
+      className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       aria-label="Primary"
     >
-      <ul className="mx-auto grid h-14 max-w-lg grid-cols-4">
+      <ul className="pointer-events-auto flex h-[3.35rem] w-full max-w-[22rem] items-stretch gap-0.5 rounded-[1.75rem] border border-white/12 bg-canvas/55 px-1.5 shadow-[0_12px_40px_rgba(2,6,23,0.45)] backdrop-blur-2xl glass-strong">
         {ITEMS.map((item) => {
           const active =
-            item.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(item.href);
+            item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
           const Icon = item.icon;
           return (
-            <li key={item.href}>
+            <li key={item.href} className="min-w-0 flex-1">
               <Link
                 href={item.href}
                 className={cn(
-                  "flex h-full flex-col items-center justify-center gap-0.5 text-[10px] font-medium",
-                  active ? "text-cream" : "text-muted",
+                  "relative flex h-full flex-col items-center justify-center gap-0.5 rounded-2xl text-[10px] font-medium transition-colors",
+                  active ? "text-cream" : "text-muted hover:text-cream/80",
                 )}
               >
-                <span className="relative grid h-8 w-8 place-items-center">
-                  {active ? (
-                    <motion.span
-                      layoutId="nav-pill"
-                      className="absolute inset-0 rounded-xl bg-brand/30"
-                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                    />
-                  ) : null}
-                  <Icon size={20} className="relative" strokeWidth={active ? 2.4 : 1.8} />
-                </span>
+                {active ? (
+                  <motion.span
+                    layoutId="nav-pill"
+                    className="absolute inset-1 rounded-2xl bg-brand/25"
+                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                  />
+                ) : null}
+                <Icon size={20} className="relative" strokeWidth={active ? 2.4 : 1.8} />
                 <span className="relative leading-none">{item.label}</span>
               </Link>
             </li>

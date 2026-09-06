@@ -13,8 +13,9 @@
 | **Production** | Supabase Auth | `reading_rooms` + `room_members` (max 5) + shelf tables with `room_id` | Vercel HTTPS |
 | **Local demo** | `/api/auth/*` + SQLite | Pair-doc mirror in `pair_docs` (room-shaped in the client) | `npm run dev` |
 
-Apply SQL: `supabase/migrations/0001_init.sql`, `0002_rooms.sql`, then `0003_book_access.sql`, then `0004_title_kinds.sql`, then `0005_note_reads.sql` (read receipts), then `0006_series.sql` (TV series).
+Apply SQL: `supabase/migrations/0001_init.sql` … `0006_series.sql`, then **`0007_grant_book_access.sql`** (share-join RPC + books select for room members).
 Deploy steps: [`docs/VERCEL_DEPLOY.md`](./VERCEL_DEPLOY.md).
+Interview-style Q&A (offline, covers, auth/JWT, PWA, push + improvements): [`docs/INTERVIEW_QA_SYSTEMS.md`](./INTERVIEW_QA_SYSTEMS.md).
 
 Rooms API on the store: `createRoom`, `joinRoom`, `leaveRoom`, `deleteRoom`, `kickMember`, `setActiveRoom`.
 Empty shelf on create (no sample seed). Share fallback: `ShareLinkModal`.
@@ -25,6 +26,7 @@ Older sections below still mention `reading_pairs` / `pair_id` historically; **c
 
 ## Table of contents
 
+0. [Interview Q&A (offline · covers · auth · PWA · push)](./INTERVIEW_QA_SYSTEMS.md)
 1. [System architecture & data flow](#1-system-architecture--data-flow)
 2. [PostgreSQL schema](#2-postgresql-schema)
 3. [Real-time engine & optimistic sync](#3-real-time-engine--optimistic-sync)

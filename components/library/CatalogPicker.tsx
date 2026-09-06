@@ -85,8 +85,8 @@ export function CatalogPicker({
                     {hit.creator}
                     {hit.year ? ` · ${hit.year}` : ""}
                     {hit.kind === "series"
-                      ? " · series"
-                      : hit.kind === "movie" && hit.totalUnits
+                      ? ` · ${hit.totalUnits} ep`
+                      : hit.kind === "movie"
                         ? ` · ${hit.totalUnits} min`
                         : hit.totalUnits
                           ? ` · ${hit.totalUnits}`

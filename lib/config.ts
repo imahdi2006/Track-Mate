@@ -21,12 +21,25 @@ export function isVapidConfigured(): boolean {
 }
 
 export function getAppUrl(): string {
-  return (
-    process.env.NEXT_PUBLIC_APP_URL ??
-    (typeof window !== "undefined"
-      ? window.location.origin
-      : "http://localhost:3000")
-  );
+  const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  if (fromEnv) return fromEnv;
+  if (typeof window !== "undefined") return window.location.origin.replace(/\/$/, "");
+  return "http://localhost:3000";
+}
+
+/** Prefer canonical production URL for Auth emails; fall back to this tab’s origin. */
+export function getAuthRedirectOrigin(): string {
+  if (typeof window !== "undefined") {
+    const live = window.location.origin.replace(/\/$/, "");
+    const configured = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+    // On the real deployed host, always use that host so confirmation /
+    // reset links open Trackmate — not an old Vercel preview URL stored
+    // as Site URL alone.
+    if (live && !/localhost|127\.0\.0\.1/.test(live)) return live;
+    if (configured) return configured;
+    return live;
+  }
+  return getAppUrl();
 }
 
 export const PAGE_DEBOUNCE_MS = 420;

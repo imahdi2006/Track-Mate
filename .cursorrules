@@ -19,9 +19,11 @@
 - **Local demo auth:** salted SHA-256 + HMAC (`pagemate-access-token`) via `/api/auth/*` (returns 501 when Supabase env is set).
 - Sign out is confirmed in a modal.
 - Do not cache `/api/*` or cross-origin in `public/sw.js`.
-- Push send lives in `app/api/push/send/route.ts` (Node runtime). Fans out to **people who can open that title** via service role when Supabase is configured. Dead 404/410 endpoints are pruned. The client **heals** the subscription on focus (browsers often rotate endpoints without firing `pushsubscriptionchange`).
-- Settings: **Check for updates** (`usePWAUpdate.checkNow`) + **Report a bug** (`BUG_REPORT_EMAIL`). iOS Web Push requires Home Screen / standalone + **HTTPS**.
-- Shelf search (`lib/search.ts`) matches title, creator, and kind (book / course / movie / series).
+- Push send lives in `app/api/push/send/route.ts` (Node runtime). Fans out to **people who can open that title** via service role when Supabase is configured. Dead 404/410 endpoints are pruned. The client **heals** the subscription on focus.
+- Settings: **Check for updates** + **Report a bug** via Resend (`/api/bug-report`, needs `RESEND_API_KEY`).
+- Share joins: apply `0007_grant_book_access.sql` (`grant_book_access_self`). Auth emails use `getAuthRedirectOrigin()` / `NEXT_PUBLIC_APP_URL`.
+- Bottom nav: floating glass pill (not full-bleed).
+- Shelf search (`lib/search.ts`) matches title, creator, and kind.
 
 ## Rooms & invites
 - Primary invite: **Share this book** → `/join/{code}?book={id}` grants **that book only** (`shelf_scope=books` + `book_access`).

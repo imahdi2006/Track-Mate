@@ -2,7 +2,7 @@
 
 import type { RealtimeChannel, SupabaseClient, User } from "@supabase/supabase-js";
 import { EmailConfirmationRequired } from "@/lib/auth/errors";
-import { ACTIVE_ROOM_KEY, ROOM_MAX_MEMBERS, ROOM_MIN_MEMBERS } from "@/lib/config";
+import { ACTIVE_ROOM_KEY, ROOM_MAX_MEMBERS, ROOM_MIN_MEMBERS, getAuthRedirectOrigin } from "@/lib/config";
 import type {
   Activity,
   AuthPayload,
@@ -387,8 +387,7 @@ export function createSupabaseAdapter(
           password,
           options: {
             data: { display_name: displayName },
-            emailRedirectTo:
-              typeof window !== "undefined" ? window.location.origin : undefined,
+            emailRedirectTo: `${getAuthRedirectOrigin()}/auth/callback`,
           },
         });
         if (error) throw error;
@@ -436,7 +435,7 @@ export function createSupabaseAdapter(
 
     async startOAuth(provider) {
       if (provider !== "google") throw new Error("Unsupported sign-in provider.");
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const origin = getAuthRedirectOrigin();
       const { error } = await sb.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -445,16 +444,21 @@ export function createSupabaseAdapter(
           queryParams: { access_type: "offline", prompt: "select_account" },
         },
       });
-      if (error) throw error;
+      if (error) {
+        const msg = error.message ?? "";
+        if (/provider is not enabled|Unsupported provider/i.test(msg)) {
+          throw new Error(
+            "Google sign-in isn’t enabled on this project yet. In Supabase → Authentication → Providers, turn on Google (and add your Client ID/Secret).",
+          );
+        }
+        throw error;
+      }
     },
 
     async requestPasswordReset(email: string) {
       const normalized = email.trim().toLowerCase();
       if (!normalized.includes("@")) throw new Error("Enter a valid email.");
-      const redirectTo =
-        typeof window !== "undefined"
-          ? `${window.location.origin}/reset-password`
-          : undefined;
+      const redirectTo = `${getAuthRedirectOrigin()}/reset-password`;
       const { error } = await sb.auth.resetPasswordForEmail(normalized, { redirectTo });
       if (error) throw error;
       return {
@@ -535,19 +539,25 @@ export function createSupabaseAdapter(
 
       const grantAccess = async () => {
         if (fullShelf || !bookId) return;
-        await sb.from("book_access").upsert(
-          { book_id: bookId, user_id: userId },
-          { onConflict: "book_id,user_id" },
-        );
-        await sb.from("reading_progress").upsert(
-          {
-            room_id: room.id,
-            book_id: bookId,
-            user_id: userId,
-            current_page: 0,
-          },
-          { onConflict: "book_id,user_id" },
-        );
+        const { error: grantErr } = await sb.rpc("grant_book_access_self", {
+          p_book_id: bookId,
+        });
+        if (grantErr) {
+          // Older projects without 0007 — fall back to direct upsert.
+          await sb.from("book_access").upsert(
+            { book_id: bookId, user_id: userId },
+            { onConflict: "book_id,user_id" },
+          );
+          await sb.from("reading_progress").upsert(
+            {
+              room_id: room.id,
+              book_id: bookId,
+              user_id: userId,
+              current_page: 0,
+            },
+            { onConflict: "book_id,user_id" },
+          );
+        }
       };
 
       if (already) {
