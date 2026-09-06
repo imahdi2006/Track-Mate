@@ -52,7 +52,6 @@ export function SettingsPanel() {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [bugOpen, setBugOpen] = useState(false);
   const [bugWhat, setBugWhat] = useState("");
-  const [bugExpected, setBugExpected] = useState("");
   const [bugSending, setBugSending] = useState(false);
 
   useEffect(() => {
@@ -102,10 +101,10 @@ export function SettingsPanel() {
   }
 
   async function sendBugReport() {
-    if (bugWhat.trim().length < 8) {
+    if (bugWhat.trim().length < 6) {
       useToastStore.getState().push({
-        title: "Add a bit more detail",
-        body: "Describe what you tapped and what went wrong.",
+        title: "Just a bit more",
+        body: "What did you tap, and what happened?",
         tone: "warn",
       });
       return;
@@ -131,7 +130,6 @@ export function SettingsPanel() {
         },
         body: JSON.stringify({
           what: bugWhat.trim(),
-          expected: bugExpected.trim(),
           version: APP_VERSION,
           mode: getSyncMode(),
           roomCode: room.inviteCode,
@@ -154,7 +152,6 @@ export function SettingsPanel() {
         tone: "success",
       });
       setBugWhat("");
-      setBugExpected("");
       setBugOpen(false);
     } catch (err) {
       useToastStore.getState().push({
@@ -518,29 +515,16 @@ export function SettingsPanel() {
         title="Report a bug"
         icon={<Bug size={20} />}
       >
-        <p className="text-sm text-muted">
-          Short notes are enough. We attach your app version and room code automatically.
-        </p>
-        <label className="mt-3 block text-xs text-muted">
-          What happened
+        <label className="mt-1 block text-xs text-muted">
+          What happened?
           <textarea
             dir="auto"
-            rows={3}
+            autoFocus
+            rows={4}
             value={bugWhat}
             onChange={(e) => setBugWhat(e.target.value)}
-            placeholder="I tapped Share and the other person saw…"
-            className="mt-1 h-auto min-h-[5.5rem] w-full resize-y rounded-2xl border border-line bg-white/5 px-4 py-3 text-base text-cream placeholder:text-muted/70 outline-none focus:border-brand/60 focus:ring-2 focus:ring-brand/30"
-          />
-        </label>
-        <label className="mt-3 block text-xs text-muted">
-          What you expected
-          <textarea
-            dir="auto"
-            rows={2}
-            value={bugExpected}
-            onChange={(e) => setBugExpected(e.target.value)}
-            placeholder="They should have joined this title."
-            className="mt-1 h-auto min-h-[4rem] w-full resize-y rounded-2xl border border-line bg-white/5 px-4 py-3 text-base text-cream placeholder:text-muted/70 outline-none focus:border-brand/60 focus:ring-2 focus:ring-brand/30"
+            placeholder="I tapped Share and… (we add your app version and room code)"
+            className="mt-1 h-auto min-h-[6.5rem] w-full resize-y rounded-2xl border border-line bg-white/5 px-4 py-3 text-base text-cream placeholder:text-muted/70 outline-none focus:border-brand/60 focus:ring-2 focus:ring-brand/30"
           />
         </label>
         <Button

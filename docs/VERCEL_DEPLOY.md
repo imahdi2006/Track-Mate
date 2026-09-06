@@ -20,18 +20,28 @@ So: **push the code, do not replace the database.**
 ## 1. Supabase project
 
 1. Use the project people already signed up on (or create one if this is the first cloud deploy).
-2. In **SQL Editor**, run in order (safe to re-run; they use `if not exists`):
-   - [`supabase/migrations/0001_init.sql`](../supabase/migrations/0001_init.sql)
-   - [`supabase/migrations/0002_rooms.sql`](../supabase/migrations/0002_rooms.sql)  
-     (If a previous `0002` run failed on `reading_pairs`, re-paste the updated file and run again, or reset the DB and run both fresh **only if nobody has data yet**.)
-   - [`supabase/migrations/0003_book_access.sql`](../supabase/migrations/0003_book_access.sql)  
-     (Book-scoped invites + public `covers` storage bucket. Required so a book link does not expose the whole shelf.)
-   - [`supabase/migrations/0004_title_kinds.sql`](../supabase/migrations/0004_title_kinds.sql)  
-     (Book / course / movie kinds.)
-   - [`supabase/migrations/0005_note_reads.sql`](../supabase/migrations/0005_note_reads.sql)  
-     (Note read receipts + Google given_name on new profiles.)
-   - [`supabase/migrations/0006_series.sql`](../supabase/migrations/0006_series.sql)  
-     (TV series kind — episodes. Required to add series from the Movie tab.)
+2. In **SQL Editor → New query**, paste the **entire contents** of
+   [`supabase/SETUP_ALL.sql`](../supabase/SETUP_ALL.sql) and click **Run**.
+   This one file *is* migrations `0001` → `0007` concatenated, and every
+   statement in it is idempotent — it is always safe to run, whether the
+   database is empty, half set-up, or already fully up to date. **Run this
+   file any time something looks broken** ("Couldn't join", "Couldn't add
+   that", missing read-receipt ticks, series won't add) before debugging
+   anything else — in practice that's almost always a migration that never
+   ran. If you add a new file under `supabase/migrations/` later, append it
+   to the bottom of `SETUP_ALL.sql` too.
+   <details>
+   <summary>Prefer running migrations one at a time instead?</summary>
+
+   They're numbered and each is safe to re-run on its own:
+   [`0001_init.sql`](../supabase/migrations/0001_init.sql) →
+   [`0002_rooms.sql`](../supabase/migrations/0002_rooms.sql) →
+   [`0003_book_access.sql`](../supabase/migrations/0003_book_access.sql) →
+   [`0004_title_kinds.sql`](../supabase/migrations/0004_title_kinds.sql) →
+   [`0005_note_reads.sql`](../supabase/migrations/0005_note_reads.sql) →
+   [`0006_series.sql`](../supabase/migrations/0006_series.sql) →
+   [`0007_grant_book_access.sql`](../supabase/migrations/0007_grant_book_access.sql).
+   </details>
 3. **Authentication → Providers**: enable **Email** and **Google**.
    - Google Cloud Console → [APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials) → Create **OAuth 2.0 Client ID** (application type: **Web application**).
    - Authorized JavaScript origins: `https://YOUR_APP.vercel.app` and `http://localhost:3000`
@@ -48,7 +58,6 @@ So: **push the code, do not replace the database.**
      - `http://localhost:3000/**`
 6. On Vercel, set `NEXT_PUBLIC_APP_URL=https://tracksmate.vercel.app` so signup / reset / Google redirects open **your app**, not an old preview host.
 7. Copy **Project URL**, **anon key**, and **service_role** key (Settings → API). Put the **same** keys on Vercel that this project already uses.
-8. Apply **`0007_grant_book_access.sql`** so **Share this title** joins work (book-scoped invites).
 
 ## 2. Vercel project
 
@@ -83,11 +92,11 @@ Generate VAPID locally: `npm run vapid`. Keep the **same** VAPID keys if devices
 - [ ] Existing email/password users can still sign in
 - [ ] **Continue with Google** — if you see “provider is not enabled”, turn on Google under Supabase → Authentication → Providers
 - [ ] Confirmation / reset emails open `https://tracksmate.vercel.app` (Site URL + `NEXT_PUBLIC_APP_URL`)
-- [ ] Share a title → second user joins (needs `0007`) and only sees that title
+- [ ] Share a title → second user joins (needs `SETUP_ALL.sql`) and only sees that title
 - [ ] Settings → Report a bug sends via Resend (needs `RESEND_API_KEY`)
 - [ ] Movie search shows minutes; series search shows episode counts; season chips on add/edit
 - [ ] Bottom nav is a floating glass pill (not full-width)
-- [ ] Notes you send show ticks; tap ticks to see who read them (needs `0005`)
+- [ ] Notes you send show ticks; tap ticks to see who read them (needs `SETUP_ALL.sql`)
 - [ ] Add/edit cover: choose a photo → crop to 2:3, then save
 - [ ] Progress labels show a name, not an email handle
 - [ ] Installed PWA shows **Update available** after a new deploy (accounts stay)
@@ -100,6 +109,40 @@ Generate VAPID locally: `npm run vapid`. Keep the **same** VAPID keys if devices
 - [ ] Settings → Check for updates; Report a bug opens a short form (email to the project inbox)
 - [ ] Settings shows GitHub / open source (Buy me a coffee is hidden)
 - [ ] Vercel Node.js Version is **24.x** and there is **no** `NODE_VERSION` env var (blank env = build dies with `to ""`)
+
+## Troubleshooting
+
+**"Couldn't join" / "Couldn't add that" / series won't add / no read-receipt ticks**
+Almost always an incomplete database. Run [`supabase/SETUP_ALL.sql`](../supabase/SETUP_ALL.sql)
+in the Supabase SQL Editor (see step 2 above), then retry. The app now shows a
+specific message pointing at this file when it detects a missing
+table/column/constraint, instead of a blank "Try again".
+
+**Google sign-in sends you to an unbranded/"random" page instead of back into the app**
+This is Google or Supabase rejecting the request *before* it ever reaches
+Trackmate — it's a dashboard config issue, not something a code change can
+fix. Check, in order:
+1. **Supabase → Authentication → Providers → Google** is toggled **on**, with
+   a Client ID **and** Client Secret saved. If it's off, Supabase shows its
+   own "provider is not enabled" page on `*.supabase.co` — that's the
+   "random page".
+2. **Google Cloud Console → Credentials** → your OAuth Client → **Authorized
+   redirect URIs** must contain exactly `https://YOUR_PROJECT.supabase.co/auth/v1/callback`
+   (Supabase's callback, **not** your Vercel app's `/auth/callback`). A
+   mismatch here makes *Google* show a generic `redirect_uri_mismatch` error
+   page — also looks "random".
+3. **Supabase → Authentication → URL Configuration → Redirect URLs** must
+   include `https://YOUR_APP.vercel.app/**`. If your app's callback URL
+   isn't in this allow-list, Supabase silently redirects to the **Site URL**
+   instead of back to Trackmate after a successful login — which looks like
+   it "sends you to a random page" even though sign-in worked.
+4. While the Google OAuth app is in **Testing** mode (not **Published**),
+   only emails added as **Test users** on the OAuth consent screen can sign
+   in — everyone else gets blocked by Google before reaching Supabase at all.
+
+If the Google button ever looks stuck on "Opening Google…" and won't respond
+to taps after coming back from a failed attempt, that's now fixed — the
+button resets itself when the page becomes visible again.
 
 ## Notes
 

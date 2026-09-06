@@ -22,6 +22,7 @@ import { parseTitleKind } from "@/lib/media";
 import { generateBuddyCode } from "@/lib/utils";
 import type { ProgressListener, SyncAdapter } from "@/lib/sync/types";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { toFriendlyError } from "@/lib/sync/db-errors";
 
 function mapProfile(row: Record<string, unknown>): Profile {
   return {
@@ -353,6 +354,29 @@ export function createSupabaseAdapter(
   const listeners = new Set<ProgressListener>();
   let channel: RealtimeChannel | null = null;
   let visibilityBound = false;
+  let authListenerBound = false;
+
+  // The JWT lives in an httpOnly-friendly cookie via @supabase/ssr, and
+  // supabase-js already auto-refreshes it in the background — no action
+  // needed for normal expiry. What we *don't* handle without this: the
+  // refresh token itself can go bad (revoked elsewhere, password changed,
+  // long-idle PWA that outlived the refresh token's own lifetime). When
+  // that happens supabase-js can't recover and eventually emits
+  // `SIGNED_OUT` on its own — without this listener the UI just kept
+  // showing stale data and every mutation failed with a confusing error
+  // instead of dropping back to the sign-in screen.
+  const bindAuthListener = () => {
+    if (authListenerBound) return;
+    authListenerBound = true;
+    sb.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT") {
+        userId = null;
+        roomId = null;
+        writeActiveRoomId(null);
+        listeners.forEach((l) => l(emptySnapshot()));
+      }
+    });
+  };
 
   const notify = async () => {
     if (!userId) return;
@@ -365,6 +389,7 @@ export function createSupabaseAdapter(
     mode: "supabase",
 
     async hydrate() {
+      bindAuthListener();
       const { data } = await sb.auth.getUser();
       userId = data.user?.id ?? null;
       if (!userId || !data.user) return emptySnapshot();
@@ -504,7 +529,7 @@ export function createSupabaseAdapter(
       });
       if (memErr) {
         await sb.from("reading_rooms").delete().eq("id", room.id);
-        throw memErr;
+        throw toFriendlyError(memErr);
       }
 
       roomId = room.id;
@@ -525,7 +550,7 @@ export function createSupabaseAdapter(
         .select("*")
         .eq("invite_code", code)
         .maybeSingle();
-      if (error) throw error;
+      if (error) throw toFriendlyError(error);
       if (!existing) throw new Error("No room found for that invite code.");
       const room = mapRoom(existing);
       const fullShelf = !bookId;
@@ -544,10 +569,11 @@ export function createSupabaseAdapter(
         });
         if (grantErr) {
           // Older projects without 0007 — fall back to direct upsert.
-          await sb.from("book_access").upsert(
+          const { error: accessFallbackErr } = await sb.from("book_access").upsert(
             { book_id: bookId, user_id: userId },
             { onConflict: "book_id,user_id" },
           );
+          if (accessFallbackErr) throw toFriendlyError(accessFallbackErr);
           await sb.from("reading_progress").upsert(
             {
               room_id: room.id,
@@ -584,7 +610,7 @@ export function createSupabaseAdapter(
         role: "member",
         shelf_scope: fullShelf ? "all" : "books",
       });
-      if (joinErr) throw joinErr;
+      if (joinErr) throw toFriendlyError(joinErr);
 
       if (fullShelf) {
         const { data: books } = await sb.from("books").select("id").eq("room_id", room.id);
@@ -690,7 +716,7 @@ export function createSupabaseAdapter(
         .eq("room_id", roomId)
         .eq("user_id", targetUserId)
         .select("user_id");
-      if (error) throw error;
+      if (error) throw toFriendlyError(error);
       if (!removed?.length) throw new Error("Couldn’t remove them. Only the room owner can.");
       await notify();
     },
@@ -709,7 +735,7 @@ export function createSupabaseAdapter(
         .select("id, created_by, room_id")
         .eq("id", bookId)
         .maybeSingle();
-      if (bookErr) throw bookErr;
+      if (bookErr) throw toFriendlyError(bookErr);
       if (!book || String(book.room_id) !== roomId) throw new Error("Title not found.");
       const isOwner = me?.role === "owner";
       if (!isOwner && String(book.created_by) !== userId) {
@@ -741,12 +767,12 @@ export function createSupabaseAdapter(
           .update({ shelf_scope: "books" })
           .eq("room_id", roomId)
           .eq("user_id", targetUserId);
-        if (scopeErr) throw scopeErr;
+        if (scopeErr) throw toFriendlyError(scopeErr);
         const { error: grantErr } = await sb.from("book_access").upsert(
           otherIds.map((id) => ({ book_id: id, user_id: targetUserId })),
           { onConflict: "book_id,user_id" },
         );
-        if (grantErr) throw grantErr;
+        if (grantErr) throw toFriendlyError(grantErr);
       }
 
       const { error: accessErr } = await sb
@@ -754,7 +780,7 @@ export function createSupabaseAdapter(
         .delete()
         .eq("book_id", bookId)
         .eq("user_id", targetUserId);
-      if (accessErr) throw accessErr;
+      if (accessErr) throw toFriendlyError(accessErr);
 
       await sb.from("reading_progress").delete().eq("book_id", bookId).eq("user_id", targetUserId);
       await sb.from("micro_notes").delete().eq("book_id", bookId).eq("user_id", targetUserId);
@@ -799,7 +825,7 @@ export function createSupabaseAdapter(
         .eq("id", userId)
         .select("*")
         .single();
-      if (error) throw error;
+      if (error) throw toFriendlyError(error);
       const profile = mapProfile(data);
       listeners.forEach((l) => l({ profile }));
       return profile;
@@ -821,7 +847,7 @@ export function createSupabaseAdapter(
         })
         .select("*")
         .single();
-      if (error) throw error;
+      if (error) throw toFriendlyError(error);
       const book = mapBook(data);
       const { data: members } = await sb
         .from("room_members")
@@ -979,7 +1005,7 @@ export function createSupabaseAdapter(
         })
         .select("*")
         .single();
-      if (error) throw error;
+      if (error) throw toFriendlyError(error);
       await sb.from("activities").insert({
         room_id: roomId,
         book_id: input.bookId,

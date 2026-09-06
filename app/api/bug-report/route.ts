@@ -64,9 +64,7 @@ export async function POST(request: Request) {
     "",
     "What happened:",
     what,
-    "",
-    "What they expected:",
-    expected || "(not provided)",
+    ...(expected ? ["", "What they expected:", expected] : []),
   ].join("\n");
 
   const res = await fetch("https://api.resend.com/emails", {

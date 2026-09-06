@@ -1,253 +1,497 @@
 # Trackmate — Interview Q&A (core systems)
 
-Simple, complete answers for how five subsystems work today, plus how to improve them.
+Deep, code-backed answers for five subsystems. Every algorithm cites real
+functions/files. Library rationale comes only from in-repo comments/docs/commits;
+otherwise it says so.
 
-Related deep dive: [`ARCHITECTURE_AND_IMPLEMENTATION.md`](./ARCHITECTURE_AND_IMPLEMENTATION.md) · Deploy: [`VERCEL_DEPLOY.md`](./VERCEL_DEPLOY.md)
+Related: [`ARCHITECTURE_AND_IMPLEMENTATION.md`](./ARCHITECTURE_AND_IMPLEMENTATION.md) ·
+[`VERCEL_DEPLOY.md`](./VERCEL_DEPLOY.md)
 
 ---
 
-## 1. How does offline mode work?
+## 1. Offline mode
 
-### Interview answer
+### Interview answer (short)
 
-Trackmate is **not** a full offline-first app. Offline means: you can still turn pages / leave notes while the network is down, and those writes catch up later.
+Not offline-first. Optimistic Zustand updates immediately; some mutations are
+queued in IndexedDB when `navigator.onLine` is false, then replayed serially
+when back online. The service worker does **not** sync mutations.
 
-**What happens when you go offline**
+### Exact algorithm (from code)
 
-1. UI still updates instantly via Zustand (`setPageOptimistic`). The bar moves even with no network.
-2. If `navigator.onLine === false`, the store does **not** call the sync adapter. It **enqueues** a mutation (`update_page`, `add_note`, `add_book`, …) in `lib/offline/queue.ts`.
-3. Queue storage: **IndexedDB** (`idb-keyval`, key `pagemate-offline-queue`), mirrored to **localStorage** for Safari private mode (IDB often fails there).
-4. User sees a toast: “Saved offline.”
-5. Debounce (`debounceMutex`, 420ms) still runs locally, so a burst of `+1` taps usually becomes **one** queued “latest page,” not dozens.
+**A. Detect online**
 
-**What happens when you come back**
+- `isOnline()` in `lib/offline/queue.ts` → `navigator.onLine` (SSR → `true`).
 
-1. `window` `online` (via `useRealtimeProgress`) and hydrate both call `replayOfflineQueue`.
-2. Replay is **strictly serial**: flush item 1, then 2, …. On failure, **stop** (don’t skip ahead and drop ordering).
-3. Successful items are dequeued. The adapter then writes to SQLite (local) or Supabase (production).
+**B. Page turn path**
 
-**What the service worker does offline**
+1. UI calls `useSessionStore.getState().setPageOptimistic(bookId, pageOrFn)`
+   (`lib/store/session-store.ts`).
+2. Reads current progress, clamps with `clamp(...)`, merges into Zustand via
+   `mergeProgress`, fires `haptic("selection")`.
+3. Schedules persist with `debounceMutex(key, fn, PAGE_DEBOUNCE_MS)` where
+   - `key = \`page:${bookId}:${profile.id}\``
+   - `PAGE_DEBOUNCE_MS = 420` (`lib/config.ts`)
+   - `debounceMutex` lives in `lib/sync/mutex.ts`.
+4. Inside the debounced `fn` (runs after quiet 420ms):
+   - Re-reads **latest** page from Zustand (not the first tap).
+   - If `!isOnline()`:
+     - `enqueueMutation({ type: "update_page", payload: { bookId, userId, page: latest, previousPage: current } })`
+     - toast “Saved offline” via `useToastStore`.
+     - **returns** (no adapter call).
+   - Else: `getAdapter().updatePage(bookId, latest, current)` then optional
+     confetti if every member finished.
 
-`public/sw.js` does **not** sync mutations. It only keeps an app shell: navigations are **network-first**, and if fetch fails it serves `/offline` (then `/offline.html`). APIs and cross-origin catalog calls are never cached.
+**C. `debounceMutex` algorithm** (`lib/sync/mutex.ts`)
 
-**Limits (honest)**
+1. `timers` Map: each call `clearTimeout` + new timeout for `key`.
+2. On fire: chain onto `tails.get(key)` promise (mutex):
+   `prev.catch(() => undefined).then(fn).catch(log)`.
+3. Goal (file comment): collapse rapid taps to **latest** page; never two
+   concurrent network writes for the same book+user.
 
-- Optimistic Zustand is **not** durable by itself. If the app is killed mid-burst before debounce + enqueue, the last taps can be lost.
-- Reading a title that was never hydrated while online won’t magically appear offline.
-- `navigator.onLine` can lie (captive portals, flaky Wi‑Fi).
+**D. Queue storage** (`lib/offline/queue.ts`)
 
-### How it should be / how to improve
+1. `enqueueMutation` → `readQueue` → `push` → `writeQueue`.
+2. `readQueue` / `writeQueue`:
+   - Primary: `idb-keyval` `get` / `set` with `OFFLINE_QUEUE_KEY`
+     (`"pagemate-offline-queue"`).
+   - Fallback: `localStorage` key `"pagemate-offline-queue-ls"` (comment:
+     IndexedDB fails in private-mode Safari).
+3. `writeQueue` tries **both** IDB and localStorage (mirror, not either/or).
+4. Types: `QueuedMutation` in `lib/types.ts` —
+   `update_page | add_note | add_book | update_book_status | update_book | remove_book`.
 
-| Gap today | Better design |
+**E. Other mutations that queue**
+
+| Store method | Offline behavior |
 | --- | --- |
-| Optimistic UI not persisted | Persist last page per book to `sessionStorage` / IDB on every tap |
-| Coarse online flag | Treat failed adapter writes as offline; enqueue on network errors too |
-| Serial replay only | Keep serial for same `bookId:userId`; allow parallel across titles |
-| No conflict policy | Last-write-wins with `updated_at`; surface “you were offline, partner moved” |
-| SW only shows offline page | Cache last hydrated shelf snapshot for read-only browse offline |
-| Queue can grow forever | Cap queue size + expire old items + show “X pending sync” in Settings |
+| `setPageOptimistic` | enqueue `update_page` (after debounce) |
+| `addNote` | enqueue `add_note` immediately + “Note queued” toast |
+| `setBookStatus` | enqueue `update_book_status` |
+| `addBook` / `updateBook` / `removeBook` | **do not** check `isOnline()`; always call adapter |
 
-**Ideal end state:** offline-first for **your** progress (local durable store → sync when online), with clear pending/synced UI; partners’ data stays network-dependent.
+**F. Replay**
+
+1. Triggers:
+   - `hydrate()` → `void get().replayOfflineQueue()` (`session-store.ts`).
+   - `useRealtimeProgress` → `window` `"online"` → `replay()` (`hooks/useRealtimeProgress.ts`).
+2. `replayOfflineQueue`:
+   - Abort if `!isOnline()`.
+   - `peekQueue()` then `for` loop **strictly serial**.
+   - Dispatch by `item.type` to `getAdapter().updatePage|addNote|addBook|…`.
+   - Success → `dequeueMutation(item.id)`.
+   - Failure → `console.error` + **`break`** (stop; keep remaining items).
+
+**G. SW offline (separate concern)**
+
+`public/sw.js` `networkFirst`: fetch fail → cached nav → `/offline` →
+`/offline.html`. No Background Sync, no queue flush from SW.
+
+### Why these libraries
+
+| Piece | Rationale in repo |
+| --- | --- |
+| `idb-keyval` | Comment in `queue.ts` explains Safari private-mode IDB failure + localStorage mirror. **Why idb-keyval specifically** (vs raw IDB / Dexie): توضیح مستندی در کد نیست. Introduced in initial setup commit (`716cb15`); no commit message explaining the choice. |
+| Hand-rolled `debounceMutex` | Documented in `mutex.ts` file comment (collapse taps + prevent concurrent writes). |
+| Zustand | توضیح مستندی در کد نیست for offline specifically; product rule is “UI reads only from `useSessionStore`”. |
+
+### Diffs vs earlier version of this doc
+
+1. **Said** enqueue covers `add_book`, …. **Code:** only `update_page`, `add_note`, `update_book_status` enqueue. `addBook` / `updateBook` / `removeBook` never call `enqueueMutation`, even though `replayOfflineQueue` and `QueuedMutation` support those types (dead enqueue paths).
+2. **Said** offline enqueue happens when offline. **Code nuance:** page turns enqueue **inside** the 420ms debounced callback, not on each tap. Kill the tab mid-burst → lost taps (Zustand only).
+3. **`ARCHITECTURE_AND_IMPLEMENTATION.md` §7.3** names keys `Trackmate-offline-queue` / `Trackmate-offline-queue-ls`. **Code:** `pagemate-offline-queue` / `pagemate-offline-queue-ls` (`lib/config.ts`, `queue.ts`).
+4. **`previousPage` in queued `update_page`:** closure from the **last** `setPageOptimistic` call before debounce fires (page before that single tap), not “page before the whole burst.”
+
+### Actionable improvements (this codebase)
+
+1. In `addBook` / `updateBook` / `removeBook`, mirror `setBookStatus`: if `!isOnline()`, `enqueueMutation` + optimistic Zustand (types already exist).
+2. On every tap in `setPageOptimistic`, write `{ bookId, page }` to `sessionStorage` (or IDB) so a kill mid-debounce can restore into the queue on next hydrate.
+3. In adapter `catch` after online `updatePage`, if network error → `enqueueMutation` (don’t trust only `navigator.onLine`).
+4. Before enqueueing another `update_page` for the same `bookId`+`userId`, coalesce in `enqueueMutation` / `replaceQueue` so replay doesn’t apply stale intermediate pages.
+5. Settings: `peekQueue().length` → “N changes waiting to sync” + manual Replay button calling `replayOfflineQueue`.
+6. Fix architecture doc keys to `pagemate-offline-queue*`.
 
 ---
 
-## 2. How does searching covers work?
+## 2. Cover / catalog search
 
-### Interview answer
+### Interview answer (short)
 
-Covers are **not** auto-picked silently. Catalog search returns candidates; the **user taps** to approve title, creator, length, and cover.
+Search returns catalog candidates; the user **taps to approve**. Upload/replace
+goes through a 2:3 crop, then Storage (cloud) or data URL (local).
 
-**Flow**
+### Exact algorithm (from code)
 
-1. Add-to-library is **search-first** (`searchCatalog` in `lib/catalog.ts`).
-2. Kind picks the source(s):
+**A. UI entry** — `components/library/CatalogPicker.tsx`
 
-| Kind | Sources | Units |
+1. Debounce query **320ms** in `useEffect`.
+2. Call `searchCatalog(kind, q)` from `lib/catalog.ts` **in the browser**.
+3. If `local.length > 0` → show hits and **return** (no server).
+4. Else fallback `GET /api/catalog/search?kind=&q=` (`app/api/catalog/search/route.ts`),
+   which calls the same `searchCatalog` on the server (`Cache-Control: no-store`).
+5. Tap → `onApprove(hit)`.
+
+**B. `searchCatalog(kind, query)`** (`lib/catalog.ts`)
+
+1. Trim; if length `< 2` → `[]`.
+2. Branch:
+   - `movie` | `series` → `searchWatchable(q, kind)`
+   - `course` → `searchCourses(q)`
+   - default book → `searchBooks(q)`
+3. Outer `try/catch` → `[]` on throw.
+
+**C. Per-source algorithms**
+
+| Fn | HTTP | Mapping |
 | --- | --- | --- |
-| Book | Open Library | pages |
-| Course | iTunes podcasts + Google Books | lessons / pages |
-| Movie / Series | iTunes movies **and** TVMaze shows (combined) | minutes / episodes |
+| `searchBooks` | `searchOpenLibrary` (`lib/openlibrary.ts` → `openlibrary.org/search.json`) | id `ol:…`, cover via `coverUrlFromDoc(doc, "L")`, pages from `number_of_pages_median` |
+| `searchMovies` | `searchItunes(q, "movie")` | id `itunes-movie:…`, art via `itunesArt` (100→600), sort known runtimes first, else `defaultTotalUnits("movie")` |
+| `searchSeries` | TVMaze `search/shows` + `episodeCountForShow` (seasons sum, else `/episodes` length) | id `tvmaze:…`, cover original/medium |
+| `searchCourses` | parallel iTunes podcasts (`${q} course`) + `searchGoogleBooks` | dedupe by `title.toLowerCase()`, max 10 |
+| `searchWatchable` | parallel movies + series | preferred kind first, then other; slice 10 (comment: avoid “Breaking Bad” as 1‑min movie) |
 
-3. Each hit is a `CatalogHit`: `title`, `creator`, `coverUrl`, `totalUnits`, `source`.
-4. Movies prefer real iTunes runtimes; series load episode counts from TVMaze seasons (or episode list fallback). Movie tab shows both film and series so “Breaking Bad” isn’t added as a 1‑minute movie.
-5. User taps a hit → confirm + shelf. Manual fields only if needed.
-6. **Upload / replace:** image goes through `CoverCropModal` (fixed **2:3** crop), then `compressCoverFile` (JPEG ~720px edge). Cloud: Supabase Storage bucket `covers`. Local: compressed data URL.
-7. Cropping a remote URL: try CORS fetch; if tainted/blocked, `/api/covers/proxy` fetches server-side (blocks private hosts, max 8MB, image/* only).
+**D. Seasons** — `fetchSeriesSeasons(hitId)` for Add/Edit season picker (TVMaze seasons or episode group-by).
 
-**Display**
+**E. Cover persist / crop** — `lib/covers.ts`
 
-Covers are plain `<img>` tags (not `next/image`) so arbitrary Open Library / iTunes / TVMaze / Storage URLs don’t need a remotePatterns allowlist.
+1. `loadImageForCrop(src)`: blob/data passthrough; else `fetch(src, { mode: "cors" })`; else
+   `GET /api/covers/proxy?url=` (`app/api/covers/proxy/route.ts`: block private hosts,
+   max 8MB, `image/*` only).
+2. `cropImageToCover` → canvas **400×600** (2:3), JPEG 0.86.
+3. `compressCoverFile` → max edge 720, JPEG 0.82.
+4. `persistCoverBlob`: if Supabase browser client + user →
+   `storage.from("covers").upload(`${uid}/${uuid}.jpg`)` → public URL;
+   else `blobToDataUrl`.
+5. `lookupCoverUrl(title, author)` — separate Open Library first-cover helper (not the picker path).
 
-### How it should be / how to improve
+**F. Display** — `<img>` in picker (and elsewhere); not `next/image`.
 
-| Gap today | Better design |
+### Why these libraries / APIs
+
+| Piece | Rationale in repo |
 | --- | --- |
-| Client hits public APIs directly | Optional server proxy for rate limits, API keys, consistent CORS |
-| Duplicate / weak matches | Rank by title similarity + year; dedupe across sources |
-| No ISBN / barcode | Add ISBN scan → Open Library / Google Books |
-| Proxy is open to any public image URL | Allowlist hostnames (Open Library, iTunes, TVMaze, Google, Supabase) |
-| Cover quality varies | Prefer largest available art; fallback chain; blurhash placeholder |
-| Series seasons only at add/edit | Re-fetch seasons when TVMaze updates episode counts |
+| Open Library / iTunes / Google Books / TVMaze | Inline comments in `catalog.ts` (`searchWatchable`, movie runtime sort). No package — raw `fetch`. |
+| Cover proxy | Comment on `loadImageForCrop`: avoid CORS-tainted crop canvas. |
+| No cover CDN SDK | توضیح مستندی در کد نیست. |
 
-**Ideal end state:** one ranked search UX, trusted cover CDN/proxy, always user-confirmed cover, Storage as source of truth after crop.
+### Diffs vs earlier version of this doc
+
+1. **Said** search is simply `searchCatalog`. **Code:** client-first, then
+   **API fallback only if client returned zero hits** (`CatalogPicker` 320ms debounce).
+2. **Said** courses = iTunes + Google Books. **Code:** queries are
+   `` `${query} course` `` for both sources, then title-dedupe.
+3. Google Books hits are tagged `kind: "course"` even when used as course filler
+   (intentional for that path).
+
+### Actionable improvements (this codebase)
+
+1. Allowlist hosts in `app/api/covers/proxy/route.ts` (openlibrary, itunes,
+   mzstatic, tvmaze, books.google, supabase) instead of any public URL.
+2. In `CatalogPicker`, always merge client + server results (or race both) so a
+   partial client failure doesn’t skip server enrichment.
+3. Dedupe `searchWatchable` by normalized title across movie/series, not only
+   course titles.
+4. Move catalog HTTP to server-only (`/api/catalog/search` always) to hide rate
+   limits / add caching headers selectively; keep SW rule: never cache `/api/*`.
+5. After crop, call existing `isUsableCoverUrl` before save so placeholder icon
+   paths never stick as covers.
 
 ---
 
-## 3. How do JWT and auth work?
+## 3. Auth / JWT
 
-### Interview answer
+### Interview answer (short)
 
-There are **two auth modes**. Production never uses the local demo crypto.
+Two modes. Production = Supabase real JWTs + RLS. Local demo = SQLite
+`/api/auth/*` + device-HMAC token that is **not** a standards JWT.
 
-#### Production (Vercel + Supabase)
+### Exact algorithm (from code)
 
-1. **Supabase Auth** issues real **JWTs** (access + refresh) after email/password or Google OAuth.
-2. Browser client (`@supabase/ssr` / `supabase-js`) stores the session; `middleware.ts` **refreshes cookies** (needed for Google PKCE) but does **not** gate routes.
-3. UI gate is `AuthGate` → profile from `useSessionStore` only. Components never call Supabase Auth directly for business data; the **Supabase adapter** does.
-4. Google: `signInWithOAuth` → `/auth/callback`. First login creates `auth.users` + `profiles` (trigger). Same Gmail as password user stays one account if automatic linking is enabled in the dashboard.
-5. Password reset / confirmation emails are sent by **Supabase Auth** (SMTP), not Trackmate’s Resend (Resend is for bug reports / local forgot-password).
-6. Server routes that need identity (e.g. push send) take `Authorization: Bearer <access_token>` and call `supabase.auth.getUser(token)`.
-7. Data access is enforced by **Postgres RLS** (`is_room_member` / `is_room_owner`), not by “trust the client.”
+**A. Mode switch**
 
-When Supabase env is set, local `/api/auth/*` and `/api/pairs/*` return **501**.
+- `isSupabaseConfigured()` → cloud adapter.
+- `localApiUnavailable()` (`lib/auth/local-api-guard.ts`) → local `/api/auth/*`
+  and pairs return **501** when Supabase env is set.
 
-#### Local demo (no Supabase env)
+**B. Production (Supabase)**
 
-1. Register/login hit `/api/auth/*` → SQLite user store (`lib/auth/server-store.ts`), rate-limited.
-2. Browser also keeps a salted **SHA-256** password hash in `localStorage` for some paths (`lib/auth/credentials.ts`).
-3. “Access token” is **not** a standards JWT. It is `base64url(claims).hmacSha256(deviceSecret)` where `deviceSecret` lives in **localStorage**. Claims: `sub`, `email`, `name`, `exp` (~30 days). Stored in **sessionStorage** as `pagemate-access-token`.
-4. That token proves “this browser issued it,” not a shared server secret. Fine for demo; **not** production security.
+1. Session via `@supabase/ssr` / `supabase-js`; cookies refreshed in
+   `middleware.ts` (`createServerClient` + `auth.getUser()`). Comment:
+   “Refresh … Google OAuth + PKCE … Does not gate routes.” Matcher excludes
+   `sw.js` and static images.
+2. UI gate: `AuthGate` + `useSessionStore.profile` (not middleware redirects).
+3. Store: `signIn` → `getAdapter().authenticate`; `signInWithGoogle` →
+   `startOAuth("google")` on adapter.
+4. `ensureProfile` in `lib/sync/supabase-adapter.ts`: insert/patch `profiles`;
+   may overwrite handle-like `display_name` with Google given name.
+5. Push identity: `sendPush` reads `sb.auth.getSession().access_token`, sends
+   `Authorization: Bearer …` to `/api/push/send`.
+6. Push route: if Bearer present → `sb.auth.getUser(token)` sets `actorId`;
+   if **no** token but body has `actorId`, request still proceeds
+   (`if (!actorId) 401` only).
 
-**Sign out** is confirmed in a modal; clears session and adapter state.
+**C. Local demo token** (`lib/auth/credentials.ts`)
 
-### How it should be / how to improve
+1. `hashPassword(password, salt)` = SHA-256 of `` `${salt}:${password}` `` via
+   `sha256Hex` (`lib/auth/browser-crypto.ts`; SubtleCrypto or pure JS fallback
+   comment: “SHA-256 when Web Crypto is blocked (HTTP on a public IP)”).
+2. Credentials map in `localStorage` key `pagemate-credentials`.
+3. `deviceSecret()`: 32-byte hex in `localStorage` `pagemate-device-secret`.
+4. `issueAccessToken(claims, ttlMs = 30d)`:
+   - body `{ …claims, exp }`
+   - `payload = toBase64Url(JSON.stringify(body))`
+   - `sig = HMAC-SHA256(deviceSecret, payload)` hex
+   - token = `` `${payload}.${sig}` `` → **sessionStorage**
+     `pagemate-access-token`
+5. `readAccessToken`: split, verify HMAC, check `exp`.
+6. **Not** three-part JWT (no header); not server-verifiable across devices.
 
-| Gap today | Better design |
+**D. Local sign-in** (`local-adapter.authenticate`)
+
+1. Signup → `syncServerAccount` (SQLite API); login → `loginServerAccount`,
+   fallback `verifyLocalPassword`.
+2. Always `registerLocalPassword` + `issueAccessToken` +
+   `sessionStorage` `pagemate-session-user-id`.
+3. `hydrate` removes legacy `pagemate-remember-user-id` and clears orphan tokens.
+4. `startOAuth` throws: Google needs Supabase.
+5. `pingBuddy` posts to `/api/push/send` with `actorId` + `buddyCode` (**no** Bearer).
+
+### Why these libraries
+
+| Piece | Rationale in repo |
 | --- | --- |
-| Two auth stacks | Keep dual mode, but document “local token ≠ JWT” loudly; never reuse local HMAC in cloud |
-| Local HMAC secret on device | If keeping local auth, use httpOnly cookie + server session secret |
-| AuthGate-only protection | Optional middleware redirects for `/settings` etc. (defense in depth) |
-| Google / email linking edge cases | Explicit “link identity” UI when automatic linking is off |
-| Redirect origin bugs | Always derive Site URL from `getAuthRedirectOrigin()` / `NEXT_PUBLIC_APP_URL` (already started) |
-| No MFA | Optional TOTP via Supabase for owners |
+| `@supabase/ssr` in middleware | Explicit comment: Google OAuth + PKCE cookie refresh. |
+| Hand-rolled HMAC token | توضیح مستندی در کد نیست beyond field names; demo-oriented. |
+| Pure JS SHA-256/HMAC fallback | Comment in `browser-crypto.ts` (HTTP without SubtleCrypto). |
+| `better-sqlite3` | Local demo store; توضیح انتخاب پکیج در کد نیست. |
 
-**Ideal end state:** production = Supabase JWT + RLS only; local = disposable demo accounts with clear “not secure” labeling; zero path where demo crypto runs in production.
+### Diffs vs earlier version of this doc
+
+1. **Said** push “No token → 401”. **Code** (`app/api/push/send/route.ts`):
+   401 only if **both** Bearer user and `body.actorId` are missing. Spoofable
+   `actorId` without JWT on the cloud path if the client omits Authorization.
+2. **Said** local adapter doesn’t call push (architecture §4.3). **Code:**
+   `pingBuddy` in `local-adapter.ts` **does** `fetch("/api/push/send", …)`.
+3. **Said** “browser also keeps salted hash for some paths”. **Code:** local
+   adapter **always** `registerLocalPassword` after server auth; login can fall
+   back to local hash if server login fails.
+4. Token shape is `payload.sig`, not `header.payload.sig` — earlier doc said
+   that correctly; keep stressing “not a JWT”.
+
+### Actionable improvements (this codebase)
+
+1. In `POST` `/api/push/send` cloud branch: require Bearer;
+   `getUser(token)` must succeed; ignore raw `body.actorId` unless it matches
+   the JWT `sub`.
+2. Stop treating local HMAC as “access token” in naming; rename to
+   `pagemate-demo-session` to avoid interview/confusion with Supabase JWT.
+3. Align `ARCHITECTURE_AND_IMPLEMENTATION.md` §4.3 with `pingBuddy`.
+4. Local demo: prefer httpOnly session cookie from `/api/auth/login` instead of
+   device-secret HMAC in `localStorage` (secret is XSS-readable today).
 
 ---
 
-## 4. How does the PWA work?
+## 4. PWA
 
-### Interview answer
+### Interview answer (short)
 
-Trackmate is an installable Progressive Web App: **manifest** + **service worker** + install / update UX.
+Manifest + hand-written `public/sw.js`, registered from `AppProviders`, with
+install/update hooks. Navigations network-first; `/api/*` never cached.
 
-**Registration**
+### Exact algorithm (from code)
 
-- `registerServiceWorker()` in `lib/pwa/register-sw.ts` registers `/sw.js` with scope `/`.
-- First install (no existing controller): waiting worker gets `SKIP_WAITING`. Later updates wait for the user (Update toast) so a mid-session reload doesn’t yank the rug.
+**A. Registration**
 
-**Caching (`public/sw.js`, cache `Trackmate-v13`)**
+1. `AppProviders` (`components/providers/AppProviders.tsx`) `useEffect` →
+   `registerServiceWorker()` (`lib/pwa/register-sw.ts`).
+2. `navigator.serviceWorker.register("/sw.js", { scope: "/" })` then
+   `reg.update()`.
+3. If `reg.waiting && !navigator.serviceWorker.controller` →
+   `postMessage({ type: "SKIP_WAITING" })` (first install only; comment:
+   otherwise leave waiting for UpdateToast).
 
-| Request | Strategy |
+**B. SW lifecycle** (`public/sw.js`, `CACHE_VERSION = "Trackmate-v13"`)
+
+| Event | Behavior |
 | --- | --- |
-| Navigations | Network-first → cache → `/offline` |
-| `/_next/static/*`, icons, manifest | Cache-first |
-| Other same-origin GET | Stale-while-revalidate |
-| `/api/*`, POST, cross-origin | **Never cached** |
+| `install` | `caches.open(v13).addAll(PRECACHE)` — `/offline`, `/offline.html`, manifest, icons; `.catch(() => undefined)` |
+| `activate` | delete caches ≠ v13; `clients.claim()` |
+| `message` | `SKIP_WAITING` → `skipWaiting()` |
+| `fetch` | non-GET ignore; cross-origin ignore; `/api/*` ignore; navigate → `networkFirst`; static → `cacheFirst`; else `staleWhileRevalidate` |
 
-Precache is only the shell (`/offline`, icons, manifest)—**not** `/`—so deploys don’t pin a stale auth bundle.
+**C. Strategies**
 
-**Install UX** (`usePWAInstall`)
+- `networkFirst`: fetch+cache put; on fail cached request → `/offline` → `/offline.html`.
+- `cacheFirst`: match else fetch+put.
+- `staleWhileRevalidate`: return cached immediately; background put.
 
-- Chromium: capture `beforeinstallprompt`, show install UI.
-- iOS: manual “Add to Home Screen” instructions (no install API).
-- Dismissal remembered ~14 days.
+**D. Install** — `hooks/usePWAInstall.ts`
 
-**Update UX** (`usePWAUpdate`)
+1. `detectPlatform()`: standalone / iOS / Android / desktop.
+2. Chromium: `beforeinstallprompt` → `preventDefault`, store event, show if not
+   dismissed (`INSTALL_DISMISS_KEY`, `INSTALL_DISMISS_DAYS = 14`).
+3. iOS: after 1400ms show guide if not dismissed (`IOS_INSTALL_DISMISS_KEY`).
+4. `promptInstall` → `deferred.prompt()` + `userChoice`.
 
-- Detect waiting worker → toast → user confirms → `SKIP_WAITING` → `controllerchange` → reload.
-- Settings → **Check for updates** calls `checkNow`.
+**E. Update** — `hooks/usePWAUpdate.ts`
 
-**Standalone**
+1. Attach to registration; on `updatefound` → `installed` + existing controller
+   → `updateReady`.
+2. Poll `reg.update()` on focus/visibility + every **30 minutes**.
+3. `applyUpdate` → `waiting.postMessage({ type: "SKIP_WAITING" })`.
+4. `controllerchange` → `location.reload()`.
+5. Settings: `checkNow()` → `reg.update()`; report `update-found` | `up-to-date`.
 
-`display-mode: standalone` (and iOS `navigator.standalone`) changes chrome and unlocks **iOS Web Push** (Home Screen + HTTPS required).
+**F. UI mounts** — `InstallPrompt`, `UpdateToast`, `PushPrompt` in `AppProviders`.
 
-### How it should be / how to improve
+### Why these libraries
 
-| Gap today | Better design |
+| Piece | Rationale in repo |
 | --- | --- |
-| Hand-written SW | Consider Serwist/Workbox for hashed asset precache at build time |
-| Manual cache version bump | Generate `CACHE_VERSION` from git SHA / build id |
-| Offline page only | Cache last dashboard shell + shelf JSON for useful offline |
-| Install prompt timing | Prompt after first successful page turn / room join (higher intent) |
-| Dev SW vs Fast Refresh | Keep SW off or unregistered in `next dev` by default |
+| Hand-written SW (no Workbox) | Header comment in `sw.js` lists strategies; architecture doc says deploy-stable hand-written SW / don’t precache hashed chunks at authoring time. |
+| No Serwist | توضیح مستندی در کد نیست as an explicit rejection — absence only. |
 
-**Ideal end state:** install in one tap on Android/desktop; clear iOS A2HS path; updates are opt-in and never break an open reading session; offline shell is useful, not just a dead-end page.
+### Diffs vs earlier version of this doc
+
+1. Cache name **Trackmate-v13** matches code; architecture diagram still mentions
+   older `Trackmate-v12` in one place — bump that diagram when editing.
+2. Install dismiss is **timestamp + 14 days**, not a boolean (doc table was
+   vague; algorithm above is exact).
+3. Update check interval **30 min** was not in the short Q&A.
+
+### Actionable improvements (this codebase)
+
+1. Generate `CACHE_VERSION` at build (`Trackmate-${gitSha}`) via a tiny
+   `scripts/write-sw-version.mjs` so deploys don’t forget manual bumps.
+2. In `register-sw.ts`, skip registration when
+   `process.env.NODE_ENV === "development"` to avoid Fast Refresh stale shells
+   (architecture §7.8 already warns).
+3. Precache nothing that embeds auth; keep excluding `/`. Optionally cache a
+   JSON shelf snapshot under a dedicated key from the store for read-only offline.
+4. Wire Settings “Check for updates” copy to `usePWAUpdate.checkNow` return
+   values with distinct toasts (already partially there — ensure all paths).
 
 ---
 
-## 5. How do notifications work?
+## 5. Notifications (Web Push)
 
-### Interview answer
+### Interview answer (short)
 
-Notifications are **Web Push** (not Firebase SDK, not SMS). Three parties: browser PushManager, Trackmate server (`web-push` + VAPID), and the push service (FCM / Mozilla / Apple).
+VAPID + `web-push` on Node route; client subscribe/heal; SW shows notification
+and already handles `pushsubscriptionchange`.
 
-**Subscribe (client)**
+### Exact algorithm (from code)
 
-1. Hook: `usePushNotifications`. Needs SW + PushManager + Notification API.
-2. After pairing, if permission is still `default`, `PushPrompt` opens after ~1.8s (once, key `Trackmate-push-prompt-seen`).
-3. User gesture → `Notification.requestPermission()` → `pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })`.
-4. Persist `{ endpoint, p256dh, auth }` via `savePushSubscription` (Supabase `push_subscriptions`, or local pair doc).
-5. **Heal on focus:** browsers rotate endpoints without always firing `pushsubscriptionchange`. On visibility/focus, re-get or re-subscribe and upsert again.
+**A. Subscribe / heal** — `hooks/usePushNotifications.ts`
 
-**Send (server)**
+1. Feature detect SW + `PushManager` + `Notification`.
+2. `persistSub(sub)` → `subscription.toJSON()` keys →
+   `savePushSubscription` on session store → adapter.
+3. `heal()` (comment: browsers rotate endpoints without always firing
+   `pushsubscriptionchange`):
+   - require VAPID configured + permission `granted`
+   - `pushManager.getSubscription()` or `subscribe({ userVisibleOnly: true, applicationServerKey })`
+   - `urlBase64ToUint8Array` from `lib/pwa/vapid.ts`
+   - `persistSub`
+4. On `profile`: heal now; also on `visibilitychange`/`focus`.
+5. Prompt: if `room` + permission `default` + VAPID + no
+   `PUSH_PROMPT_SEEN_KEY` → open after **1800ms**.
+6. `subscribe()`: iOS non-standalone → error “add … Home Screen first”;
+   else `requestPermission` → `heal`.
+7. `sendTest`: heal, POST `/api/push/send` with `event: "test"`, optional
+   inline `subscription` (no Bearer in this hook path).
 
-1. `POST /api/push/send` (Node runtime — `web-push` is not Edge-safe).
-2. VAPID: public key in client subscribe; private key signs a short-lived JWT so the push service accepts the app as sender.
-3. Auth: Bearer Supabase access token → `getUser`; resolves room; fans out to people who can open that title (service role), not only a single “buddy.”
-4. **Throttle** ~15s per actor/event/book so rapid page taps don’t spam.
-5. Dead endpoints (**404/410**) are pruned so future sends don’t keep failing silently.
-6. Payload JSON → SW `push` handler → `showNotification` (tag collapses updates per book). Click focuses `/book/[id]` or opens a window.
+**B. SW push UX** (`public/sw.js`)
 
-**iOS**
+1. `push`: parse JSON; `showNotification` with icon/badge/vibrate,
+   `tag` + `renotify: true`, actions `open` / `later`.
+2. `notificationclick`: ignore `later`; focus client + `navigate(url)` or
+   `openWindow`.
+3. **`pushsubscriptionchange` (already implemented):**
+   - fetch `/api/push/vapid-public-key`
+   - resubscribe
+   - POST `/api/push/resubscribe` with old/new keys
+   - on failure POST `{ oldEndpoint }` only to drop dead row
+   - (`app/api/push/resubscribe/route.ts` swaps by old endpoint → same `user_id`)
 
-Requires HTTPS + **installed** (Home Screen / standalone). Safari in a normal tab will not get reliable Web Push.
+**C. Send** — `app/api/push/send/route.ts` (`runtime = "nodejs"`)
 
-**Local demo**
+1. `configureVapid()` → `webpush.setVapidDetails(subject, public, private)`.
+2. Throttle: in-memory `lastSent` Map key
+   `` `${actorId}:${event}:${bookId}` ``, window `PUSH_THROTTLE_MS = 15_000`
+   (`lib/config.ts`); `test` bypasses.
+3. **Local branch** (`!isSupabaseConfigured()` + buddyCode + actorId):
+   pair-doc subscriptions; test → actor’s subs; else → others; prune via
+   `replacePushSubscriptionEverywhere`.
+4. **Cloud branch:**
+   - service role client
+   - resolve `actorId` (Bearer preferred)
+   - resolve `roomId` (body / invite code / first membership)
+   - targets = other `room_members` (or self for test)
+   - if `bookId`: keep owners + `shelf_scope === "all"` + `book_access` rows
+   - load `push_subscriptions` for targets
+   - `deliver` → `webpush.sendNotification` `Promise.allSettled`
+   - delete endpoints with status **404/410**
 
-Without Supabase, send reads subscriptions off the pair doc; Settings “test ping” can target this device. Still needs HTTPS + standalone on iOS.
+**D. Who calls send**
 
-### How it should be / how to improve
+- Cloud: `sendPush` in `supabase-adapter.ts` after page/note (Bearer token).
+- Local: `pingBuddy` in `local-adapter.ts` (actorId + buddyCode, no Bearer).
 
-| Gap today | Better design |
+### Why these libraries
+
+| Piece | Rationale in repo |
 | --- | --- |
-| In-memory throttle (per lambda) | Redis / Upstash throttle shared across instances |
-| Fan-out every page turn | Digest mode: “3 updates while you were away” |
-| No per-title mute | Mute book / mute room in Settings |
-| Heal only on focus | Also handle `pushsubscriptionchange` in SW |
-| Rich payload limited | Actions: “I’m caught up” / deep-link to exact page |
-| Permission UX one-shot | Soft educate → request; re-prompt path if denied then Settings |
+| `web-push` | Architecture + route: aes128gcm + VAPID JWT; **Node runtime** because package is not Edge-compatible. |
+| VAPID | Architecture §4.1 + `npm run vapid`. |
+| In-memory throttle | No Redis; architecture admits per-instance limit. |
 
-**Ideal end state:** reliable multi-device delivery, dead endpoints auto-cleaned, user-controlled quiet hours / mutes, and iOS path documented in-product (“Add to Home Screen to get pings”).
+### Diffs vs earlier version of this doc
+
+1. **Improvement table said** “Also handle `pushsubscriptionchange` in SW”.
+   **Code already has it** (`public/sw.js` ~156–196) + `/api/push/resubscribe`.
+   Heal-on-focus is an **extra** safety net, not the only mechanism.
+2. **Architecture §4.3** “Local adapter does **not** call it” — **false**;
+   `pingBuddy` does. This Q&A’s short “local demo path exists” was right;
+   architecture was wrong.
+3. Fan-out is **not** “buddy only”: cloud filters by room membership +
+   book scope (`book_access` / `shelf_scope`).
+4. Test ping can inject `body.subscription` so the device works even before DB
+   upsert is visible.
+
+### Actionable improvements (this codebase)
+
+1. Require Supabase JWT on cloud `/api/push/send` (see Auth § improvements).
+2. Replace `lastSent` Map with Upstash Redis (`SET key NX EX 15`) so throttle
+   works across Vercel instances — wire next to existing `PUSH_THROTTLE_MS`.
+3. Add `muted_book_ids` (or room mute) on `profiles` / settings; filter
+   `targetIds` in send route before loading subscriptions.
+4. In SW `pushsubscriptionchange`, also postMessage the page to run `heal()`
+   so Zustand/adapter stay aligned when SW swaps endpoints in background.
+5. Have `usePushNotifications.sendTest` attach Supabase Bearer (from
+   `getSession`) so test path exercises the same auth as production sends.
+6. Remove the obsolete “add pushsubscriptionchange” item from any checklist;
+   document heal + SW as dual recovery instead.
 
 ---
 
-## Quick compare (one table)
+## Quick compare (code-accurate)
 
 | Topic | Source of truth | Key files | Main risk |
 | --- | --- | --- | --- |
-| Offline | IDB/localStorage queue + Zustand | `lib/offline/queue.ts`, `session-store` | Lost taps if killed before enqueue |
-| Covers | User-approved catalog hit / crop | `lib/catalog.ts`, `lib/covers.ts`, `CoverCropModal` | Bad auto-match; CORS on crop |
-| Auth | Supabase JWT (prod) / device HMAC (demo) | adapters, `credentials.ts`, `AuthGate` | Confusing demo token with real JWT |
-| PWA | `public/sw.js` + hooks | `register-sw.ts`, `usePWAInstall`, `usePWAUpdate` | Stale cache if version not bumped |
-| Push | VAPID + `push_subscriptions` | `usePushNotifications`, `/api/push/send`, SW | iOS without install; dead endpoints |
+| Offline | IDB + LS queue; enqueue only for page/note/status | `queue.ts`, `mutex.ts`, `session-store.ts` | `addBook` offline not queued; debounce gap |
+| Covers | Client `searchCatalog` then API fallback | `catalog.ts`, `CatalogPicker.tsx`, `covers.ts` | Open proxy; CORS |
+| Auth | Supabase JWT vs device HMAC | `credentials.ts`, `middleware.ts`, adapters | Push `actorId` without Bearer |
+| PWA | `Trackmate-v13` SW + hooks | `sw.js`, `register-sw.ts`, PWA hooks | Manual cache bump; SW in dev |
+| Push | VAPID + DB subs + SW | `usePushNotifications.ts`, `push/send`, `sw.js` | Throttle per instance; iOS needs A2HS |
 
 ---
 
 ## Suggested follow-up interview questions
 
-1. Why debounce page turns instead of writing every tap?
-2. Why must `/api/*` never be cached by the service worker?
-3. What is VAPID and why does push send need a Node runtime?
-4. How does book-scoped invite differ from room invite for authZ?
-5. What breaks if Realtime overwrites Zustand during an armed debounce?
+1. Why does `debounceMutex` key include `profile.id`, and what races does the promise chain prevent?
+2. Why must `/api/*` never be cached, including catalog search?
+3. How does local `payload.sig` differ from a Supabase access JWT, and who can verify each?
+4. When does `registerServiceWorker` call `SKIP_WAITING` vs leave the worker waiting?
+5. Trace a book-scoped member: why might they **not** get a push for a title they cannot open?

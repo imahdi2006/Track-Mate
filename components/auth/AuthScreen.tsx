@@ -42,6 +42,28 @@ export function AuthScreen() {
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // Clicking "Continue with Google" navigates the whole tab away. If that
+    // sign-in fails on Google/Supabase's side (e.g. the provider isn't
+    // enabled yet) and the user taps the browser Back button, some browsers
+    // restore this page from the back/forward cache with React state frozen
+    // exactly as it was — busy=true — so the button looks stuck forever and
+    // never responds to taps again. Reset it whenever the page is restored.
+    function onPageShow(event: PageTransitionEvent) {
+      if (event.persisted) setBusy(false);
+    }
+    function onVisible() {
+      if (document.visibilityState === "visible") setBusy(false);
+    }
+    window.addEventListener("pageshow", onPageShow);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("pageshow", onPageShow);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (view === "forgot") {
