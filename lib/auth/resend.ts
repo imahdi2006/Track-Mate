@@ -1,4 +1,4 @@
-﻿import { APP_NAME } from "@/lib/config";
+import { APP_NAME } from "@/lib/config";
 
 export function isResendConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY);

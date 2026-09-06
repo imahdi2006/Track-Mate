@@ -1,4 +1,4 @@
-﻿/* Trackmate service worker
+/* Trackmate service worker
  *
  * Cache strategy:
  *  - install: pre-cache app shell + offline fallback

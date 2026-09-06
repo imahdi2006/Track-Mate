@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { TrackmateLogo } from "@/components/branding/TrackmateLogo";
 
 export default function NotFound() {

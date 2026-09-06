@@ -1,4 +1,4 @@
-﻿export type BookStatus = "currently_reading" | "want_to_read" | "completed";
+export type BookStatus = "currently_reading" | "want_to_read" | "completed";
 
 /** Shelf item: a book, a course, a movie, or a TV series. Stored on `books.kind`. */
 export type TitleKind = "book" | "course" | "movie" | "series";

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { create } from "zustand";
 import { PAGE_DEBOUNCE_MS, isSupabaseConfigured } from "@/lib/config";

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (typeof window === "undefined" || !("serviceWorker" in navigator))
