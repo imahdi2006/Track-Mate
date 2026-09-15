@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/Input";
 import { ThemeSwitch } from "@/components/ui/ThemeSwitch";
 import { isSupabaseConfigured } from "@/lib/config";
 import { isEmailConfirmationRequired } from "@/lib/auth/errors";
+import { requestGoogleSignIn } from "@/lib/auth/google-gis";
 import { readPendingJoinCode } from "@/lib/invite";
 import { useSessionStore } from "@/lib/store/session-store";
 import { useToastStore } from "@/lib/store/toast-store";
@@ -19,6 +20,7 @@ type AuthView = "signin" | "signup" | "forgot";
 export function AuthScreen() {
   const signIn = useSessionStore((s) => s.signIn);
   const signInWithGoogle = useSessionStore((s) => s.signInWithGoogle);
+  const signInWithGoogleIdToken = useSessionStore((s) => s.signInWithGoogleIdToken);
   const requestPasswordReset = useSessionStore((s) => s.requestPasswordReset);
   const [view, setView] = useState<AuthView>("signin");
   const [name, setName] = useState("");
@@ -126,6 +128,16 @@ export function AuthScreen() {
   async function onGoogle() {
     setBusy(true);
     try {
+      const result = await requestGoogleSignIn();
+      if (result.kind === "cancelled") {
+        setBusy(false);
+        return;
+      }
+      if (result.kind === "credential") {
+        await signInWithGoogleIdToken(result.token);
+        setBusy(false);
+        return;
+      }
       await signInWithGoogle();
     } catch (err) {
       useToastStore.getState().push({

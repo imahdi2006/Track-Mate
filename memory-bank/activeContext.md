@@ -2,13 +2,21 @@
 
 Product name is **Trackmate**. Dark-first PWA with a light theme toggle.
 
-**Current focus:** Root-causing why join/add/notes still broke after prior fixes — the live
-Supabase project was very likely missing migrations `0003`–`0007` (console showed
-`book_access` 404, `note_reads` 404, `room_members?...shelf_scope` 400 — missing
-table/column, not an RLS/app bug). Added a single consolidated setup script and made
-DB errors self-explanatory instead of a blank "Try again".
+**Current focus:** Page-turn rollback (optimistic +1 snapping back), bug-report send
+failures, and Google sign-in UX (Supabase GIS / OAuth — not NextAuth).
 
 **Recent:**
+- **Page rollback fix:** Realtime / focus refetch / `markNotesRead` hydrate were
+  overwriting Zustand with the old page during the 420ms debounce, then persisting
+  the stale number. `lib/store/merge-progress.ts` keeps a fresher local row;
+  adapter notify drops stale overlapping fetches; upsert errors now throw; notes
+  no longer full-hydrate on top of optimistic progress.
+- **Bug report:** if `RESEND_API_KEY` is missing or Resend fails, the API returns a
+  `mailto:` and Settings opens the user’s mail app instead of a dead toast.
+- **Google:** still **Supabase Auth**, not NextAuth and not `@react-oauth/google`.
+  Optional GIS (`NEXT_PUBLIC_GOOGLE_CLIENT_ID` + Skip nonce checks) stays in-app
+  via `signInWithIdToken`; otherwise the existing OAuth redirect.
+
 - Deepened `docs/INTERVIEW_QA_SYSTEMS.md` from real code (per-system algorithms, library rationale, doc↔code diffs, actionable fixes).
 - **`supabase/SETUP_ALL.sql`** (new): migrations `0001`→`0007` concatenated into one
   idempotent file. Paste the whole thing into the Supabase SQL Editor any time
@@ -90,10 +98,8 @@ Fixes so this fails loudly and clearly instead of a raw filesystem error:
   vapidConfigured, resendConfigured, appUrl, nodeEnv }` — visit it after any deploy to
   confirm env vars actually reached the server, instead of trial-and-error via the UI.
 
-**Next:** User must (1) run `supabase/SETUP_ALL.sql` (now fixed) in the Supabase SQL
-Editor, (2) visit `https://tracksmate.vercel.app/api/health` and confirm
-`supabaseConfigured: true` — if false, fix the Vercel env vars (exist, correct names,
-scoped to Production, then **redeploy**) before anything else, (3) then revisit Google
-OAuth dashboard items whenever they're ready (explicitly deferred this round — "under
-embargo"). Set `RESEND_API_KEY` on Vercel for bug reports. Commit + push only when
-asked. Do not reset the DB.
+**Next:** User should push this page-rollback + bug-report + Google GIS work, then:
+(1) confirm `/api/health` has `supabaseConfigured: true` and ideally `resendConfigured: true`,
+(2) optionally set `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (same Web Client ID as Supabase Google)
+    and tick Skip nonce checks for in-app Google Identity Services — **not NextAuth**,
+(3) re-run `SETUP_ALL.sql` if add/join still fail. Do not reset the DB.

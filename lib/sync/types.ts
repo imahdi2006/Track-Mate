@@ -57,6 +57,7 @@ export interface SyncAdapter {
     },
   ): Promise<void>;
   startOAuth(provider: "google"): Promise<void>;
+  signInWithIdToken(credential: string): Promise<void>;
   removeBook(bookId: string): Promise<void>;
   updatePage(bookId: string, page: number, previousPage: number): Promise<void>;
   addNote(input: {

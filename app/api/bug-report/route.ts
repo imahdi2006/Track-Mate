@@ -24,7 +24,7 @@ export async function POST(request: Request) {
 
   const what = (body.what ?? "").trim();
   const expected = (body.expected ?? "").trim();
-  if (what.length < 8) {
+  if (what.length < 6) {
     return NextResponse.json(
       { ok: false, error: "too_short", message: "Tell us a bit more about what happened." },
       { status: 400 },
@@ -42,18 +42,6 @@ export async function POST(request: Request) {
     }
   }
 
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "resend_unconfigured",
-        message: "Bug reports aren’t wired up on the server yet (missing RESEND_API_KEY).",
-      },
-      { status: 200 },
-    );
-  }
-
   const from = process.env.RESEND_FROM || "Trackmate <onboarding@resend.dev>";
   const text = [
     `Reporter: ${reporter}`,
@@ -66,6 +54,20 @@ export async function POST(request: Request) {
     what,
     ...(expected ? ["", "What they expected:", expected] : []),
   ].join("\n");
+
+  const mailto = `mailto:${BUG_REPORT_EMAIL}?subject=${encodeURIComponent(
+    `[${APP_NAME} bug] ${what.slice(0, 72)}`,
+  )}&body=${encodeURIComponent(text)}`;
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json({
+      ok: false,
+      error: "resend_unconfigured",
+      message: "Email sending isn’t set up on the server. We’ll open your mail app instead.",
+      mailto,
+    });
+  }
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -94,7 +96,8 @@ export async function POST(request: Request) {
       {
         ok: false,
         error: "send_failed",
-        message: detail || "Couldn’t send the report. Try again in a moment.",
+        message: detail || "Couldn’t send the report. We’ll open your mail app instead.",
+        mailto,
       },
       { status: 200 },
     );

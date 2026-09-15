@@ -47,6 +47,8 @@ So: **push the code, do not replace the database.**
    - Authorized JavaScript origins: `https://YOUR_APP.vercel.app` and `http://localhost:3000`
    - Authorized redirect URI (Google Cloud): `https://YOUR_PROJECT.supabase.co/auth/v1/callback`
    - Copy Client ID + Client Secret into Supabase → Authentication → Providers → Google → enable.
+   - Tick **Skip nonce checks** (needed for in-app Google Identity Services / `signInWithIdToken`).
+   - Also paste that **same** Client ID into Vercel as `NEXT_PUBLIC_GOOGLE_CLIENT_ID` so Continue with Google can stay inside the app (GIS popup), instead of bouncing through a hosted OAuth page.
    - While the Google app is in **Testing**, add each Gmail as a test user (OAuth consent screen). Until you click **Publish app**, only those test users can sign in with Google.
 4. **Authentication → Providers** (or Auth settings): enable **automatic account linking** / confirm that verified emails from Google attach to the existing email+password user. Same Gmail = same Trackmate account.
 5. **Authentication → URL configuration**:
@@ -70,6 +72,7 @@ So: **push the code, do not replace the database.**
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes (push fan-out) |
 | `NEXT_PUBLIC_APP_URL` | yes (`https://tracksmate.vercel.app`) |
+| `NEXT_PUBLIC_GOOGLE_CLIENT_ID` | optional (same Web Client ID as Supabase Google). Enables in-app Google Identity Services — stays on Trackmate instead of a full-page redirect. **Not NextAuth.** |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | yes for push |
 | `VAPID_PRIVATE_KEY` | yes for push |
 | `RESEND_API_KEY` | yes for Settings → Report a bug (and local forgot-password) |
@@ -93,7 +96,7 @@ Generate VAPID locally: `npm run vapid`. Keep the **same** VAPID keys if devices
 - [ ] **Continue with Google** — if you see “provider is not enabled”, turn on Google under Supabase → Authentication → Providers
 - [ ] Confirmation / reset emails open `https://tracksmate.vercel.app` (Site URL + `NEXT_PUBLIC_APP_URL`)
 - [ ] Share a title → second user joins (needs `SETUP_ALL.sql`) and only sees that title
-- [ ] Settings → Report a bug sends via Resend (needs `RESEND_API_KEY`)
+- [ ] Settings → Report a bug sends via Resend, or opens your mail app if `RESEND_API_KEY` is missing
 - [ ] Movie search shows minutes; series search shows episode counts; season chips on add/edit
 - [ ] Bottom nav is a floating glass pill (not full-width)
 - [ ] Notes you send show ticks; tap ticks to see who read them (needs `SETUP_ALL.sql`)

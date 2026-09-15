@@ -502,6 +502,12 @@ export function createLocalAdapter(): SyncAdapter {
       );
     },
 
+    async signInWithIdToken() {
+      throw new Error(
+        "Google sign-in needs the cloud app (Supabase). Use email and password in local demo.",
+      );
+    },
+
     async authenticate(payload) {
       const email = normalizeEmail(payload.email);
       if (!email || !email.includes("@")) throw new Error("Enter a valid email.");

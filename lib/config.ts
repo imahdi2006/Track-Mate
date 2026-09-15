@@ -20,6 +20,12 @@ export function isVapidConfigured(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY);
 }
 
+/** Public Google OAuth Client ID for in-app GIS (same ID as Supabase → Auth → Google). */
+export function getGoogleClientId(): string | undefined {
+  const id = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID?.trim();
+  return id || undefined;
+}
+
 export function getAppUrl(): string {
   const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
   if (fromEnv) return fromEnv;

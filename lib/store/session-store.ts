@@ -31,6 +31,7 @@ import type {
 } from "@/lib/types";
 import { clamp } from "@/lib/utils";
 import { fireCompletionConfetti } from "@/lib/confetti";
+import { applyRemoteSnapshot } from "@/lib/store/merge-progress";
 import { useToastStore } from "@/lib/store/toast-store";
 
 let adapter: SyncAdapter | null = null;
@@ -102,6 +103,7 @@ interface SessionState {
     },
   ) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
+  signInWithGoogleIdToken: (credential: string) => Promise<void>;
   removeBook: (bookId: string) => Promise<void>;
   setBookStatus: (bookId: string, status: BookStatus) => Promise<void>;
   setPageOptimistic: (
@@ -172,7 +174,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       set({ ...snap, hydrated: true, hydrating: false, lastError: null });
       unsubscribeAdapter?.();
       unsubscribeAdapter = a.subscribe((partial) => {
-        set((state) => ({ ...state, ...partial }));
+        set((state) => applyRemoteSnapshot(state, partial));
       });
       void get().replayOfflineQueue();
     } catch (err) {
@@ -192,6 +194,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   signInWithGoogle: async () => {
     await getAdapter().startOAuth("google");
+  },
+
+  signInWithGoogleIdToken: async (credential) => {
+    await getAdapter().signInWithIdToken(credential);
+    const snap = await getAdapter().hydrate();
+    set({ ...snap, lastError: null });
+    unsubscribeAdapter?.();
+    unsubscribeAdapter = getAdapter().subscribe((partial) => {
+      set((state) => applyRemoteSnapshot(state, partial));
+    });
   },
 
   requestPasswordReset: async (email) => {
@@ -368,7 +380,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   },
 
   setPageOptimistic: (bookId, pageOrFn) => {
-    const { profile, progress, books, members } = get();
+    const { profile, progress, books } = get();
     if (!profile) return;
     const current =
       progress.find((p) => p.bookId === bookId && p.userId === profile.id)
@@ -408,7 +420,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
           });
           return;
         }
-        await getAdapter().updatePage(bookId, latest, current);
+        try {
+          await getAdapter().updatePage(bookId, latest, current);
+        } catch (err) {
+          useToastStore.getState().push({
+            title: "Couldn’t save that page",
+            body: err instanceof Error ? err.message : "Try again in a moment.",
+            tone: "warn",
+          });
+          throw err;
+        }
 
         const snap = get();
         const memberIds = snap.members.map((m) => m.userId);
@@ -449,15 +470,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return;
     }
     await getAdapter().addNote(input);
-    const snap = await getAdapter().hydrate();
-    set(snap);
   },
 
   markNotesRead: async (bookId) => {
     try {
       await getAdapter().markNotesRead(bookId);
-      const snap = await getAdapter().hydrate();
-      set(snap);
     } catch {
       /* receipts are best-effort until migration 0005 is applied */
     }

@@ -828,17 +828,20 @@ optimistic snapshot to `sessionStorage` on every tap (not done in v1).
 ### 7.4 Partner update during my debounce window
 
 I am at 100, buddy is at 100. I tap +5 (optimistic 105) but have not
-persisted. Buddy’s Realtime event refetches snapshot showing me still at
-100 and **overwrites Zustand**, wiping 105.
+persisted. Buddy’s Realtime event (or a note-read hydrate, or a focus
+refetch) used to replace Zustand with me still at 100, wiping 105. Debounce
+then persisted **100** — the +5 vanished.
 
-**This is real.** Mitigation options (pick one if it bites):
+**Mitigation (now in code):**
 
-- Don’t apply Realtime snapshots to **my** progress row if a debounce timer
-  is armed for that key (`timers.has(key)`).
-- Overlay “in-flight local page” on top of snapshot merge.
-
-v1 accepts the rare flicker because debounce is 420ms and Realtime of *my
-own* writes is the common echo, which matches the optimistic value.
+- `applyRemoteSnapshot` / `mergeProgressPreferLocalFresh` keep my row when
+  it is newer (`updatedAt`) or a `page:{bookId}:{userId}` debounce is armed.
+- Overlapping `fetchSnapshot` calls in the Supabase adapter drop stale
+  generations so an older in-flight refetch cannot land after a newer one.
+- `updatePage` throws if the upsert fails (silent RLS failures used to look
+  like a rollback).
+- `markNotesRead` / `addNote` no longer `hydrate()` + `set(snap)` on top of
+  the already-subscribed snapshot.
 
 ### 7.5 Join-code races
 

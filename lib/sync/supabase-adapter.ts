@@ -355,6 +355,7 @@ export function createSupabaseAdapter(
   let channel: RealtimeChannel | null = null;
   let visibilityBound = false;
   let authListenerBound = false;
+  let notifyGen = 0;
 
   // The JWT lives in an httpOnly-friendly cookie via @supabase/ssr, and
   // supabase-js already auto-refreshes it in the background — no action
@@ -380,7 +381,9 @@ export function createSupabaseAdapter(
 
   const notify = async () => {
     if (!userId) return;
+    const gen = ++notifyGen;
     const snap = await fetchSnapshot(sb, userId, roomId);
+    if (gen !== notifyGen) return;
     roomId = snap.room?.id ?? null;
     listeners.forEach((l) => l(snap));
   };
@@ -478,6 +481,24 @@ export function createSupabaseAdapter(
         }
         throw error;
       }
+    },
+
+    async signInWithIdToken(credential: string) {
+      const { data, error } = await sb.auth.signInWithIdToken({
+        provider: "google",
+        token: credential,
+      });
+      if (error) {
+        const msg = error.message ?? "";
+        if (/provider is not enabled|Unsupported provider/i.test(msg)) {
+          throw new Error(
+            "Google sign-in isn’t enabled on this project yet. In Supabase → Authentication → Providers, turn on Google (and add your Client ID/Secret).",
+          );
+        }
+        throw error;
+      }
+      userId = data.user?.id ?? null;
+      if (data.user) await ensureProfile(sb, data.user);
     },
 
     async requestPasswordReset(email: string) {
@@ -922,7 +943,7 @@ export function createSupabaseAdapter(
       const total = Number(book?.total_pages ?? page);
       const clamped = Math.max(0, Math.min(page, total));
 
-      await sb.from("reading_progress").upsert(
+      const { error: progressErr } = await sb.from("reading_progress").upsert(
         {
           room_id: roomId,
           book_id: bookId,
@@ -932,6 +953,7 @@ export function createSupabaseAdapter(
         },
         { onConflict: "book_id,user_id" },
       );
+      if (progressErr) throw toFriendlyError(progressErr);
 
       if (clamped !== previousPage) {
         await sb.from("activities").insert({

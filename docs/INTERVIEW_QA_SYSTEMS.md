@@ -222,7 +222,10 @@ Two modes. Production = Supabase real JWTs + RLS. Local demo = SQLite
    `sw.js` and static images.
 2. UI gate: `AuthGate` + `useSessionStore.profile` (not middleware redirects).
 3. Store: `signIn` → `getAdapter().authenticate`; `signInWithGoogle` →
-   `startOAuth("google")` on adapter.
+   `startOAuth("google")` (full-page redirect) **or** `signInWithGoogleIdToken`
+   via Google Identity Services (`lib/auth/google-gis.ts`) — **not** NextAuth
+   and **not** `@react-oauth/google`. GIS needs `NEXT_PUBLIC_GOOGLE_CLIENT_ID`
+   (same Web Client ID as the Supabase Google provider) plus **Skip nonce checks**.
 4. `ensureProfile` in `lib/sync/supabase-adapter.ts`: insert/patch `profiles`;
    may overwrite handle-like `display_name` with Google given name.
 5. Push identity: `sendPush` reads `sb.auth.getSession().access_token`, sends

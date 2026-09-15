@@ -137,22 +137,33 @@ export function SettingsPanel() {
           email: profile.email ?? undefined,
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; message?: string };
-      if (!data.ok) {
+      const data = (await res.json()) as { ok?: boolean; message?: string; mailto?: string };
+      if (data.ok) {
         useToastStore.getState().push({
-          title: "Couldn’t send report",
-          body: data.message ?? "Try again, or copy the text and email us.",
-          tone: "warn",
+          title: "Report sent",
+          body: "Thanks — we’ll take a look.",
+          tone: "success",
         });
+        setBugWhat("");
+        setBugOpen(false);
+        return;
+      }
+      if (data.mailto) {
+        window.location.href = data.mailto;
+        useToastStore.getState().push({
+          title: "Opening your email app",
+          body: "Send the message that just opened — that’s the bug report.",
+          tone: "success",
+        });
+        setBugWhat("");
+        setBugOpen(false);
         return;
       }
       useToastStore.getState().push({
-        title: "Report sent",
-        body: "Thanks — we’ll take a look.",
-        tone: "success",
+        title: "Couldn’t send report",
+        body: data.message ?? "Try again, or copy the text and email us.",
+        tone: "warn",
       });
-      setBugWhat("");
-      setBugOpen(false);
     } catch (err) {
       useToastStore.getState().push({
         title: "Couldn’t send report",

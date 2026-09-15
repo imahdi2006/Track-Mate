@@ -12,6 +12,11 @@
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 const tails = new Map<string, Promise<void>>();
 
+/** True while a page-turn persist is still waiting out its quiet period. */
+export function isDebounceArmed(key: string): boolean {
+  return timers.has(key);
+}
+
 export function debounceMutex(
   key: string,
   fn: () => Promise<void>,

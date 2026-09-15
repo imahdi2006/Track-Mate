@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isSupabaseConfigured, isVapidConfigured, getAppUrl } from "@/lib/config";
+import { isSupabaseConfigured, isVapidConfigured, getAppUrl, getGoogleClientId } from "@/lib/config";
 
 export const runtime = "nodejs";
 
@@ -16,6 +16,7 @@ export async function GET() {
     supabaseConfigured: isSupabaseConfigured(),
     vapidConfigured: isVapidConfigured(),
     resendConfigured: Boolean(process.env.RESEND_API_KEY),
+    googleClientIdConfigured: Boolean(getGoogleClientId()),
     appUrl: getAppUrl(),
     nodeEnv: process.env.NODE_ENV,
   });
